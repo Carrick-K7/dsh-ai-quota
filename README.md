@@ -1,6 +1,6 @@
 # dsh-ai-quota
 
-[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that shows your AI subscription quotas & balances — **Codex**, **Kimi**, **DeepSeek**, **OpenCode Go** — in one place.
+A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that shows your AI subscription quotas & balances — **Codex**, **Kimi**, **DeepSeek**, **OpenCode Go** — in one place.
 
 English · [中文](README.zh-CN.md)
 
@@ -23,7 +23,7 @@ The bundled `cordis.patch.yml` declaration makes `dsh plugin` append the plugin 
 
 ## Configuration
 
-All keys optional, defaults shown. Full reference (key resolution order, unified format, per-provider sources): [中文文档](README.zh-CN.md).
+All keys optional, defaults shown.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -38,14 +38,19 @@ All keys optional, defaults shown. Full reference (key resolution order, unified
 | `kimiOauthHost` | `https://auth.kimi.com` | Kimi OAuth refresh endpoint (appends `/api/oauth/token`) |
 | `kimiClientId` | Kimi Code CLI's public client id | OAuth `client_id` (usually unchanged) |
 
+## Credentials
+
+- **DeepSeek / OpenCode Go**: env var named by config (defaults `DEEPSEEK_API_KEY` / `OPENCODE_GO_API_KEY`), falling back to the DSH credentials seam; OpenCode Go also falls back to the `opencode-go` entry in `~/.local/share/opencode/auth.json`.
+- **Codex / Kimi**: no keys — the local CLI login state is reused (codex CLI on PATH; Kimi Code CLI's OAuth session, auto-refreshed when expired, `kimi login` again if it is gone).
+
 ## Data sources
 
 | Provider | Source |
 | --- | --- |
 | Codex | Local `codex app-server --stdio` JSON-RPC (`account/rateLimits/read`) — 5h / 7d windows |
-| Kimi | `GET {kimiBaseUrl}/usages` with the Kimi Code CLI's OAuth login state (auto-refreshes the access token; never starts a login) |
-| DeepSeek | `GET {deepseekBaseUrl}/user/balance` — bearer key from env var or the DSH credentials seam |
-| OpenCode Go | `GET {opencodeBaseUrl}` — bearer key, with fallback to `~/.local/share/opencode/auth.json` |
+| Kimi | `GET {kimiBaseUrl}/usages` (Kimi Code CLI's OAuth login state) |
+| DeepSeek | `GET {deepseekBaseUrl}/user/balance` (bearer key) |
+| OpenCode Go | `GET {opencodeBaseUrl}` (bearer key) |
 
 ## License
 
