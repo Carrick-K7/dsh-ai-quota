@@ -1,0 +1,19 @@
+# dsh-ai-quota bundle patch: inserts the plugin row over the profile.
+# Applied automatically when the profile lists this package in
+# dsh.profile.bundles (the `dsh plugin --profile web add` flow appends it).
+#
+# All values below are the defaults; edit the row's `config` to override,
+# e.g. to rename the environment variables for a different deployment:
+#   config:
+#     deepseekApiKeyEnv: MY_DEEPSEEK_KEY
+#     opencodeGoApiKeyEnv: MY_OPENCODE_GO_KEY
+- insert:
+    - id: ai-quota
+      name: 'dsh-ai-quota'
+      config:
+        timeoutMs: 15000
+        deepseekBaseUrl: 'https://api.deepseek.com'
+        opencodeBaseUrl: 'https://opencode.ai/zen/go/v1/usage'
+        codexCli: 'codex'
+        deepseekApiKeyEnv: 'DEEPSEEK_API_KEY'
+        opencodeGoApiKeyEnv: 'OPENCODE_GO_API_KEY'
