@@ -30,7 +30,7 @@ import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { spawn } from "node:child_process";
 import { existsSync, statSync, readdirSync } from "node:fs";
-import { readFile, writeFile, rename } from "node:fs/promises";
+import { readFile, writeFile, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -46,6 +46,9 @@ const DEFAULT_KIMI_CLIENT_ID = "17e5f671-d194-4dfb-9706-5516cb48c098";
 
 export const Config = z.object({
   timeoutMs: z.number().default(DEFAULT_TIMEOUT_MS),
+  // 全局自动刷新间隔（毫秒）：host 侧定时器预热缓存，前端/工具读缓存即得。
+  // 0 = 关闭自动刷新。默认 2 分钟。
+  refreshIntervalMs: z.number().default(120000),
   deepseekBaseUrl: z.string().default(DEFAULT_DEEPSEEK_BASE_URL),
   opencodeBaseUrl: z.string().default(DEFAULT_OPENCODE_BASE_URL),
   codexCli: z.string().default(DEFAULT_CODEX_CLI),
@@ -140,12 +143,42 @@ async function resolveOpencodeAuthKey() {
   return undefined;
 }
 
-function fetchWithTimeout(url, options, timeoutMs) {
+const MAX_BODY_BYTES = 4 * 1024 * 1024;
+
+/**
+ * fetch + JSON body under ONE timeout that stays armed until the body is
+ * fully read (a slow-drip body must not outlive timeoutMs). Bodies with a
+ * Content-Length beyond MAX_BODY_BYTES are refused up front.
+ * Resolves { status, ok, body|null } (status 0 = refused body); rejects on
+ * timeout / network errors — callers map that to "network".
+ */
+async function fetchJson(url, options, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(url, { ...options, signal: controller.signal }).finally(() =>
-    clearTimeout(timer),
-  );
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    const len = Number(res.headers.get("content-length") || NaN);
+    if (Number.isFinite(len) && len > MAX_BODY_BYTES) {
+      controller.abort();
+      return { status: 0, ok: false, body: null };
+    }
+    let body = null;
+    try {
+      body = await res.json();
+    } catch {
+      /* body stays null */
+    }
+    return { status: res.status, ok: res.ok, body };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Provider-controlled strings reach tool output; strip control chars and cap length. */
+function safeLabel(value, max = 48) {
+  if (typeof value !== "string") return null;
+  const cleaned = value.replace(/[\x00-\x1f\x7f]/g, "").trim().slice(0, max);
+  return cleaned.length > 0 ? cleaned : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -194,23 +227,20 @@ function adaptCodexRateLimits(result) {
   let plan = null;
   const aggregate = result.rateLimits;
   if (aggregate && typeof aggregate === "object") {
-    if (typeof aggregate.planType === "string") plan = aggregate.planType;
+    plan = safeLabel(aggregate.planType);
     for (const slot of ["primary", "secondary"]) {
       const w = snapshotWindow(aggregate[slot]);
       if (w) windows.push(w);
     }
   }
-  if (!plan && typeof result.planType === "string") plan = result.planType;
+  if (!plan) plan = safeLabel(result.planType);
   const byLimitId = result.rateLimitsByLimitId;
   if (byLimitId && typeof byLimitId === "object" && aggregate) {
     const aggregateId = aggregate.limitId || "codex";
     for (const [limitId, snapshot] of Object.entries(byLimitId)) {
       if (!snapshot || typeof snapshot !== "object") continue;
       if (limitId === aggregateId || limitId === "codex" || snapshot === aggregate) continue;
-      const label =
-        typeof snapshot.limitName === "string" && snapshot.limitName.length > 0
-          ? snapshot.limitName
-          : limitId;
+      const label = safeLabel(snapshot.limitName) || safeLabel(limitId) || "unknown";
       for (const slot of ["primary", "secondary"]) {
         const w = snapshotWindow(snapshot[slot]);
         if (w) windows.push({ ...w, name: `${label} ${w.name}` });
@@ -266,6 +296,10 @@ export function codexRateLimits(codexCli, timeoutMs) {
 
     child.stdout.on("data", (chunk) => {
       buffer += chunk;
+      if (buffer.length > MAX_BODY_BYTES) {
+        finish({ kind: "error", error: "overflow" });
+        return;
+      }
       let nl;
       while ((nl = buffer.indexOf("\n")) >= 0) {
         const line = buffer.slice(0, nl).trim();
@@ -350,29 +384,29 @@ async function queryDeepSeek(ctx, config, timeoutMs) {
     };
   }
   try {
-    const res = await fetchWithTimeout(
+    const r = await fetchJson(
       `${String(config.deepseekBaseUrl).replace(/\/+$/, "")}/user/balance`,
       { headers: { Authorization: `Bearer ${key}`, Accept: "application/json" } },
       timeoutMs,
     );
-    if (res.status === 401) {
+    if (r.status === 401) {
       return { status: "error", keyConfigured: true, error: "unauthorized", available: null, balances: [] };
     }
-    if (!res.ok) {
-      return { status: "error", keyConfigured: true, error: `http-${res.status}`, available: null, balances: [] };
+    if (!r.ok) {
+      return { status: "error", keyConfigured: true, error: r.status ? `http-${r.status}` : "too-large", available: null, balances: [] };
     }
-    const body = await res.json();
-    const infos = Array.isArray(body && body.balance_infos) ? body.balance_infos : [];
+    const body = r.body || {};
+    const infos = Array.isArray(body.balance_infos) ? body.balance_infos : [];
     return {
       status: "ok",
       keyConfigured: true,
       error: null,
-      available: body && typeof body.is_available === "boolean" ? body.is_available : null,
+      available: typeof body.is_available === "boolean" ? body.is_available : null,
       balances: infos.map((b) => ({
-        currency: typeof b.currency === "string" ? b.currency : "?",
-        totalBalance: typeof b.total_balance === "string" ? b.total_balance : null,
-        grantedBalance: typeof b.granted_balance === "string" ? b.granted_balance : null,
-        toppedUpBalance: typeof b.topped_up_balance === "string" ? b.topped_up_balance : null,
+        currency: safeLabel(b.currency, 8) || "?",
+        totalBalance: safeLabel(b.total_balance, 32),
+        grantedBalance: safeLabel(b.granted_balance, 32),
+        toppedUpBalance: safeLabel(b.topped_up_balance, 32),
       })),
     };
   } catch {
@@ -402,18 +436,18 @@ async function queryOpencodeGo(ctx, config, timeoutMs) {
     return { status: "not-configured", keyConfigured: false, error: "no-api-key", windows: [] };
   }
   try {
-    const res = await fetchWithTimeout(
+    const r = await fetchJson(
       config.opencodeBaseUrl,
       { headers: { Authorization: `Bearer ${key}`, Accept: "application/json" } },
       timeoutMs,
     );
-    if (res.status === 401) {
+    if (r.status === 401) {
       return { status: "error", keyConfigured: true, error: "unauthorized", windows: [] };
     }
-    if (!res.ok) {
-      return { status: "error", keyConfigured: true, error: `http-${res.status}`, windows: [] };
+    if (!r.ok) {
+      return { status: "error", keyConfigured: true, error: r.status ? `http-${r.status}` : "too-large", windows: [] };
     }
-    const body = await res.json();
+    const body = r.body;
     const usage = body && typeof body === "object" && body.usage ? body.usage : body;
     const windows = [];
     for (const [name, w] of [
@@ -460,18 +494,55 @@ async function readKimiCredentials() {
 /**
  * Refresh the access token through the CLI's OAuth host and persist the
  * rotated tokens back to the credential file (atomically), so the CLI keeps
- * working with the same state. If the CLI itself refreshed concurrently
- * (refresh_token changed on disk), the on-disk token wins and ours is
- * discarded.
+ * working with the same state.
+ *
+ * Two race guards:
+ * - A per-file in-process mutex serializes refreshes: the model tool and the
+ *   browser Remote may both trigger a refresh, and replaying one refresh_token
+ *   twice risks family revocation under server-side reuse detection. Inside
+ *   the lock the file is re-read — a token already refreshed while we waited
+ *   is used as-is.
+ * - Before writing, the on-disk refresh_token is compared with the one we
+ *   spent; a mismatch means the CLI refreshed concurrently and the freshest
+ *   on-disk token wins.
  */
-async function refreshKimiCredentials(stored, config, timeoutMs) {
-  const creds = stored.creds;
+const kimiRefreshLocks = new Map();
+
+function refreshKimiCredentials(stored, config, timeoutMs) {
+  const prev = kimiRefreshLocks.get(stored.file) || Promise.resolve();
+  const run = prev.then(() => doRefreshKimiCredentials(stored, config, timeoutMs));
+  kimiRefreshLocks.set(
+    stored.file,
+    run.then(
+      () => {},
+      () => {},
+    ),
+  );
+  return run;
+}
+
+async function doRefreshKimiCredentials(stored, config, timeoutMs) {
+  // Re-read inside the lock: the CLI or a queued plugin refresh may have
+  // rotated the tokens while we waited.
+  let creds = stored.creds;
+  try {
+    const latest = JSON.parse(await readFile(stored.file, "utf8"));
+    if (latest && typeof latest.refresh_token === "string" && latest.refresh_token.length > 0) {
+      const expMs = typeof latest.expires_at === "number" ? latest.expires_at * 1000 : 0;
+      if (typeof latest.access_token === "string" && latest.access_token && Date.now() < expMs - 30000) {
+        return { ok: true, creds: latest };
+      }
+      creds = latest;
+    }
+  } catch {
+    /* fall back to the in-memory creds */
+  }
   if (typeof creds.refresh_token !== "string" || creds.refresh_token.length === 0) {
     return { ok: false, error: "no-credentials" };
   }
   let tok;
   try {
-    const res = await fetchWithTimeout(
+    const r = await fetchJson(
       `${String(config.kimiOauthHost || DEFAULT_KIMI_OAUTH_HOST).replace(/\/+$/, "")}/api/oauth/token`,
       {
         method: "POST",
@@ -484,9 +555,9 @@ async function refreshKimiCredentials(stored, config, timeoutMs) {
       },
       timeoutMs,
     );
-    if (res.status === 401 || res.status === 403) return { ok: false, error: "login-expired" };
-    if (!res.ok) return { ok: false, error: `http-${res.status}` };
-    tok = await res.json();
+    if (r.status === 401 || r.status === 403) return { ok: false, error: "login-expired" };
+    if (!r.ok) return { ok: false, error: r.status ? `http-${r.status}` : "too-large" };
+    tok = r.body;
   } catch {
     return { ok: false, error: "network" };
   }
@@ -502,25 +573,32 @@ async function refreshKimiCredentials(stored, config, timeoutMs) {
     scope: typeof tok.scope === "string" ? tok.scope : creds.scope,
     token_type: typeof tok.token_type === "string" ? tok.token_type : creds.token_type,
   };
-  try {
-    const latest = JSON.parse(await readFile(stored.file, "utf8"));
-    if (latest && latest.refresh_token === creds.refresh_token) {
-      const tmp = stored.file + ".tmp";
-      await writeFile(tmp, JSON.stringify(merged), { mode: 0o600 });
-      await rename(tmp, stored.file);
+  // Persist the rotated tokens (one retry); a write failure still returns the
+  // in-memory token — this query works, only the NEXT refresh may need a
+  // re-login if the rotation never reached disk.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const latest = JSON.parse(await readFile(stored.file, "utf8"));
+      if (latest && latest.refresh_token === creds.refresh_token) {
+        const tmp = stored.file + ".tmp";
+        await rm(tmp, { force: true });
+        await writeFile(tmp, JSON.stringify(merged), { mode: 0o600 });
+        await rename(tmp, stored.file);
+        return { ok: true, creds: merged };
+      }
+      // The CLI refreshed concurrently: prefer the freshest on-disk token.
+      if (
+        latest &&
+        typeof latest.access_token === "string" &&
+        typeof latest.expires_at === "number" &&
+        Date.now() < latest.expires_at * 1000 - 30000
+      ) {
+        return { ok: true, creds: latest };
+      }
       return { ok: true, creds: merged };
+    } catch {
+      /* retry once, then fall through with the in-memory token */
     }
-    // The CLI refreshed concurrently: prefer the freshest on-disk token.
-    if (
-      latest &&
-      typeof latest.access_token === "string" &&
-      typeof latest.expires_at === "number" &&
-      Date.now() < latest.expires_at * 1000 - 30000
-    ) {
-      return { ok: true, creds: latest };
-    }
-  } catch {
-    /* fall through: use the in-memory token even if persisting failed */
   }
   return { ok: true, creds: merged };
 }
@@ -626,23 +704,23 @@ export async function queryKimi(ctx, config, timeoutMs) {
     creds = refreshed.creds;
   }
   try {
-    const res = await fetchWithTimeout(
+    const r = await fetchJson(
       `${String(config.kimiBaseUrl || DEFAULT_KIMI_BASE_URL).replace(/\/+$/, "")}/usages`,
       { headers: { Authorization: `Bearer ${creds.access_token}`, Accept: "application/json" } },
       timeoutMs,
     );
-    if (res.status === 401) {
+    if (r.status === 401) {
       return { status: "error", keyConfigured: true, error: "unauthorized", plan: null, windows: [] };
     }
-    if (!res.ok) {
-      return { status: "error", keyConfigured: true, error: `http-${res.status}`, plan: null, windows: [] };
+    if (!r.ok) {
+      return { status: "error", keyConfigured: true, error: r.status ? `http-${r.status}` : "too-large", plan: null, windows: [] };
     }
-    const body = await res.json();
+    const body = r.body;
     return {
       status: "ok",
       keyConfigured: true,
       error: null,
-      plan: kimiPlanName(body),
+      plan: safeLabel(kimiPlanName(body)),
       windows: adaptKimiUsage(body),
     };
   } catch {
@@ -676,7 +754,7 @@ function toSubscriptionWindows(rawWindows) {
       name: w && typeof w.name === "string" ? w.name : "unknown",
       usedPercent: used,
       remainingPercent: used === null ? null : Math.max(0, Math.min(100, 100 - used)),
-      resetsAt: w && typeof w.resetsAt === "string" ? w.resetsAt : null,
+      resetsAt: w ? safeLabel(w.resetsAt, 40) : null,
       limitWindowSeconds:
         w && typeof w.limitWindowSeconds === "number" ? w.limitWindowSeconds : null,
     };
@@ -733,6 +811,15 @@ export function summarizeResult(result) {
   return lines.join("\n");
 }
 
+// 每个 provider 的完整结果形状——查询结果、失败兜底、"skipped" 填充共用
+// 这一份默认（Typert 边界校验要求所有 provider 键始终存在）。
+const PROVIDER_DEFAULTS = {
+  codex: { kind: "subscription", status: "skipped", error: null, plan: null, windows: [] },
+  kimi: { kind: "subscription", status: "skipped", keyConfigured: false, error: null, plan: null, windows: [] },
+  deepseek: { kind: "balance", status: "skipped", keyConfigured: false, error: null, available: null, balances: [] },
+  opencodeGo: { kind: "subscription", status: "skipped", keyConfigured: false, error: null, windows: [] },
+};
+
 export class AiQuotaGateway extends TypertRemoteService {
   static inject = ["tools"];
   static Config = Config;
@@ -740,6 +827,19 @@ export class AiQuotaGateway extends TypertRemoteService {
   constructor(ctx, config) {
     super(ctx, "aiQuota");
     this.config = config ?? {};
+    this._cache = null;    // 最近一次全量查询结果（调度器每 refreshIntervalMs 刷新）
+    this._inflight = null; // 并发去重：同时进行的强制刷新共享同一次查询
+
+    const intervalMs = this.config.refreshIntervalMs ?? 120000;
+    if (intervalMs > 0) {
+      ctx.effect(() => {
+        const tick = () => this._refresh().catch(() => {});
+        const timer = setInterval(tick, intervalMs);
+        timer.unref?.();
+        tick(); // 启动即预热一次
+        return () => clearInterval(timer);
+      });
+    }
 
     const self = this;
     const timeoutMs = this.config.timeoutMs || DEFAULT_TIMEOUT_MS;
@@ -761,15 +861,56 @@ export class AiQuotaGateway extends TypertRemoteService {
         },
         timeoutMs: Math.max(timeoutMs * 2, 30000),
         async execute(args) {
-          return self._queryAll(args && Array.isArray(args.providers) ? args.providers : null);
+          return self.query(args && Array.isArray(args.providers) ? args.providers : null);
         },
       }),
     );
   }
 
-  /** Remote method: result for the Settings page. filter 可选，只查指定 provider。 */
+  /** Remote method: 设置页/chip 的读取入口。有缓存直接给（调度器保鲜），否则先刷新。 */
   async query(filter) {
-    return this._queryAll(Array.isArray(filter) ? filter : null);
+    if (!this._cache) {
+      try {
+        await this._refresh();
+      } catch {
+        /* fall through: _queryAll 自身不会因单 provider 失败而 reject */
+      }
+    }
+    const full = this._cache || (await this._queryAll(null));
+    return this._view(full, filter);
+  }
+
+  /** Remote method: 手动刷新按钮。强制全量查询（并发调用去重为一次）。 */
+  async refresh(filter) {
+    const full = await this._refresh();
+    return this._view(full, filter);
+  }
+
+  /** 全量查询并写入缓存；并发调用共享同一次执行。 */
+  _refresh() {
+    if (!this._inflight) {
+      this._inflight = this._queryAll(null)
+        .then((result) => {
+          this._cache = result;
+          return result;
+        })
+        .finally(() => {
+          this._inflight = null;
+        });
+    }
+    return this._inflight;
+  }
+
+  /** 从全量结果裁剪出 filter 视图（未请求的 provider 以默认形状填充）。 */
+  _view(full, filter) {
+    if (!Array.isArray(filter)) return full;
+    const providers = {};
+    for (const name of Object.keys(PROVIDER_DEFAULTS)) {
+      providers[name] = filter.includes(name)
+        ? full.providers[name]
+        : { ...PROVIDER_DEFAULTS[name] };
+    }
+    return { fetchedAt: full.fetchedAt, providers };
   }
 
   async _queryAll(filter) {
@@ -790,55 +931,23 @@ export class AiQuotaGateway extends TypertRemoteService {
     const providers = {};
     settled.forEach((outcome, i) => {
       const name = tasks[i][0];
-      const value = outcome.status === "fulfilled" ? outcome.value : null;
+      const base = PROVIDER_DEFAULTS[name];
+      const ok = outcome.status === "fulfilled" && outcome.value;
+      const raw = ok ? outcome.value : { status: "error", error: "internal" };
       if (name === "codex") {
-        const c = value ? normalizeCodex(value) : { status: "error", error: "internal", plan: null, windows: [] };
-        providers.codex = {
-          kind: "subscription",
-          status: c.status,
-          error: c.error,
-          plan: c.plan,
-          windows: toSubscriptionWindows(c.windows),
-        };
+        const c = ok ? normalizeCodex(raw) : raw;
+        providers.codex = { ...base, status: c.status, error: c.error, plan: c.plan, windows: toSubscriptionWindows(c.windows) };
       } else if (name === "kimi") {
-        const k = value || { status: "error", error: "internal", keyConfigured: false, plan: null, windows: [] };
-        providers.kimi = {
-          kind: "subscription",
-          status: k.status,
-          keyConfigured: k.keyConfigured,
-          error: k.error,
-          plan: k.plan,
-          windows: toSubscriptionWindows(k.windows),
-        };
+        providers.kimi = { ...base, status: raw.status, keyConfigured: raw.keyConfigured ?? false, error: raw.error, plan: raw.plan ?? null, windows: toSubscriptionWindows(raw.windows) };
       } else if (name === "deepseek") {
-        const d = value || { status: "error", error: "internal", keyConfigured: false, available: null, balances: [] };
-        providers.deepseek = {
-          kind: "balance",
-          status: d.status,
-          keyConfigured: d.keyConfigured,
-          error: d.error,
-          available: d.available,
-          balances: toBalanceInfos(d.balances),
-        };
+        providers.deepseek = { ...base, status: raw.status, keyConfigured: raw.keyConfigured ?? false, error: raw.error, available: raw.available ?? null, balances: toBalanceInfos(raw.balances) };
       } else {
-        const o = value || { status: "error", error: "internal", keyConfigured: false, windows: [] };
-        providers.opencodeGo = {
-          kind: "subscription",
-          status: o.status,
-          keyConfigured: o.keyConfigured,
-          error: o.error,
-          windows: toSubscriptionWindows(o.windows),
-        };
+        providers.opencodeGo = { ...base, status: raw.status, keyConfigured: raw.keyConfigured ?? false, error: raw.error, windows: toSubscriptionWindows(raw.windows) };
       }
     });
-    // 未请求的 provider 以 status: "skipped" 填充，保证结果形状完整
-    // （Typert 边界校验要求所有 provider 键都存在）。
+    // 未请求的 provider 以默认形状（status: "skipped"）填充。
     for (const name of ALL) {
-      if (providers[name] !== undefined) continue;
-      if (name === "codex") providers.codex = { kind: "subscription", status: "skipped", error: null, plan: null, windows: [] };
-      else if (name === "kimi") providers.kimi = { kind: "subscription", status: "skipped", keyConfigured: false, error: null, plan: null, windows: [] };
-      else if (name === "deepseek") providers.deepseek = { kind: "balance", status: "skipped", keyConfigured: false, error: null, available: null, balances: [] };
-      else providers.opencodeGo = { kind: "subscription", status: "skipped", keyConfigured: false, error: null, windows: [] };
+      if (providers[name] === undefined) providers[name] = { ...PROVIDER_DEFAULTS[name] };
     }
     return { fetchedAt: new Date().toISOString(), providers };
   }

@@ -7,6 +7,7 @@
 - **Model tool `query_ai_quota`** — ask any agent session "check my AI quota" and get structured, human-readable results.
 - **Settings page** — a new "AI Quota" section in Settings with per-window usage bars and balances, plus a manual refresh.
 - **Composer chip** — a minimal one-line quota indicator under the input box that follows the currently selected model (toggleable in Settings).
+- **Global auto-refresh** — the host re-queries all providers every 2 minutes (configurable via `refreshIntervalMs`, `0` disables) and serves a warm cache; the Settings page, composer chip and model tool all read it instantly.
 - **Unified format** — every provider is normalized to `subscription` windows (`usedPercent` / `resetsAt`) or `balance` entries; one provider failing never affects the others.
 - **Auth reuse** — Codex uses the local CLI login state; Kimi reuses the Kimi Code CLI OAuth session (auto-refreshes and atomically persists rotated tokens); DeepSeek / OpenCode Go read API keys from env vars or the DSH credentials seam. Keys and tokens never appear in tool output.
 
@@ -28,6 +29,7 @@ DeepSeek Harness 插件：查询你的 AI 订阅额度/余额 —— **Codex**�
 
 1. **模型工具 `query_ai_quota`**：任何 agent 会话里直接问「查一下我的 AI 额度」，工具返回四个 provider 的结构化结果。
 2. **设置页 UI**：设置侧边栏新增「AI 额度」页面，展示每个 provider 的用量进度条 / 余额，支持手动刷新；输入框下方还有一条跟随当前模型的极简额度行（可在设置页开关）。
+3. **全局自动刷新**：host 侧每 2 分钟自动全量查询一次并写入缓存（`refreshIntervalMs` 可配，`0` 关闭）；设置页、chip、模型工具都读缓存，秒回。手动刷新按钮走 `refresh` 方法强制现场查询（并发去重为一次）。
 
 ## 安装
 
@@ -45,6 +47,7 @@ dsh plugin --profile web add github:Carrick-K7/dsh-ai-quota
 | Key | 默认值 | 含义 |
 | --- | --- | --- |
 | `timeoutMs` | `15000` | 单 provider 查询超时（毫秒） |
+| `refreshIntervalMs` | `120000` | 全局自动刷新间隔（毫秒），`0` = 关闭 |
 | `deepseekBaseUrl` | `https://api.deepseek.com` | DeepSeek API 基地址 |
 | `opencodeBaseUrl` | `https://opencode.ai/zen/go/v1/usage` | OpenCode Go 用量端点 |
 | `codexCli` | `codex` | codex CLI 命令名或绝对路径 |

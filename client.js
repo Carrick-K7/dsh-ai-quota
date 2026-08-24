@@ -120,6 +120,30 @@ window.__ModuleLoader__.load({
             schema: { parse(value) { return value; } },
           },
         },
+        {
+          id: "dsh-ai-quota#aiQuota/refresh",
+          service: "aiQuota",
+          namespace: "aiQuota",
+          method: "refresh",
+          invocation: { kind: "direct" },
+          parameters: [
+            {
+              name: "filter",
+              wire: "filter",
+              source: "json",
+              codec: {
+                mode: "strict",
+                typeSymbol: "dsh-ai-quota#ProvidersFilter",
+                schema: { parse(value) { return value; } },
+              },
+            },
+          ],
+          result: {
+            mode: "strict",
+            typeSymbol: "dsh-ai-quota#AiQuotaResult",
+            schema: { parse(value) { return value; } },
+          },
+        },
       ],
     };
 
@@ -439,7 +463,7 @@ window.__ModuleLoader__.load({
       chipState[provider] = record;
       chipListeners.forEach((f) => f());
     }
-    function chipEnsure(query, provider, force) {
+    function chipEnsure(query, refresh, provider, force) {
       const now = Date.now();
       const cur = chipState[provider];
       if (!force && cur && cur.at > 0 && now - cur.at < CHIP_TTL_MS) return;
@@ -448,7 +472,7 @@ window.__ModuleLoader__.load({
       chipAttempts.set(provider, now);
       chipSet(provider, { value: cur && cur.value ? cur.value : null, at: cur ? cur.at : 0, status: "loading" });
       Promise.resolve()
-        .then(() => query([provider]))
+        .then(() => (force ? refresh : query)([provider]))
         .then((result) => {
           if (!result || result.ok === false) throw new Error("remote failed");
           const prov = result.value && result.value.providers && result.value.providers[provider];
@@ -492,7 +516,7 @@ window.__ModuleLoader__.load({
     }
 
     function BalanceChip(props) {
-      const { seat, available, directory, load, query, t } = props;
+      const { seat, available, directory, load, query, refresh, t } = props;
       const enabled = React.useSyncExternalStore(subscribeChipEnabled, isChipEnabled);
       const subscribeDirectory = React.useCallback(
         (cb) => (directory ? directory.subscribe(cb) : () => {}),
@@ -506,7 +530,7 @@ window.__ModuleLoader__.load({
       const current = dirState ? dirState.current : null;
       const dirLoading = !!dirState && (dirState.status === "idle" || dirState.status === "loading");
       const provider = available && current ? mapModelToProvider(current.provider, current.model) : null;
-      React.useEffect(() => { if (provider) chipEnsure(query, provider, false); }, [provider, query]);
+      React.useEffect(() => { if (provider) chipEnsure(query, refresh, provider, false); }, [provider, query, refresh]);
       const record = React.useSyncExternalStore(
         subscribeChipStore,
         () => (provider ? chipState[provider] || null : null)
@@ -540,7 +564,7 @@ window.__ModuleLoader__.load({
       }
 
       const isBalance = value.kind === "balance" || value.balances !== undefined;
-      const onRefresh = () => chipEnsure(query, provider, true);
+      const onRefresh = () => chipEnsure(query, refresh, provider, true);
       const chipClass = "dsh-ab-chip" + (refreshing ? " dsh-ab-skel" : "");
 
       if (isBalance) {
@@ -579,7 +603,7 @@ window.__ModuleLoader__.load({
     }
 
     function BalancesPanel(props) {
-      const { query, t } = props;
+      const { query, refresh, t } = props;
       const [cards, setCards] = React.useState(() => {
         const cached = loadCache();
         const providers = {};
@@ -598,10 +622,10 @@ window.__ModuleLoader__.load({
       const mounted = React.useRef(true);
       React.useEffect(() => () => { mounted.current = false; }, []);
 
-      const refreshOne = React.useCallback((name) => {
+      const refreshOne = React.useCallback((name, force) => {
         setCards((s) => ({ ...s, state: { ...s.state, [name]: "loading" }, errors: { ...s.errors, [name]: null } }));
         Promise.resolve()
-          .then(() => query([name]))
+          .then(() => (force ? refresh : query)([name]))
           .then((result) => {
             if (!result || result.ok === false) {
               throw new Error((result && result.error && result.error.message) || "remote failed");
@@ -623,13 +647,14 @@ window.__ModuleLoader__.load({
               errors: { ...s.errors, [name]: String((e && e.message) || e) },
             }));
           });
-      }, [query]);
+      }, [query, refresh]);
 
-      const refreshAll = React.useCallback(() => {
-        for (const name of PROVIDER_NAMES) refreshOne(name);
+      // 挂载走缓存（host 调度器保鲜）；刷新按钮强制现场查询。
+      const refreshAll = React.useCallback((force) => {
+        for (const name of PROVIDER_NAMES) refreshOne(name, force);
       }, [refreshOne]);
 
-      React.useEffect(() => { refreshAll(); }, [refreshAll]);
+      React.useEffect(() => { refreshAll(false); }, [refreshAll]);
 
       const refreshingAny = PROVIDER_NAMES.some((n) => cards.state[n] === "loading");
 
@@ -663,7 +688,7 @@ window.__ModuleLoader__.load({
             updated ? React.createElement("p", { style: styles.updated }, updated) : null,
             React.createElement("button", {
               className: "dsh-ab-refresh" + (refreshingAny ? " spinning" : ""),
-              onClick: refreshAll,
+              onClick: () => refreshAll(true),
               title: t("refresh"),
               "aria-label": t("refresh"),
             }, React.createElement(RefreshIcon))
@@ -684,14 +709,18 @@ window.__ModuleLoader__.load({
       ctx.effect(ensureStyleTag, "dsh-ai-quota: styles");
       const t = ctx.locale.bind(NS);
 
-      const query = (filter) => {
+      const callRemote = (method, filter) => {
         return Promise.resolve(mountReady).then(async () => {
           const api = ctx.get("remote.aiQuota");
           if (!api) throw new Error("aiQuota remote is unavailable");
-          return api.query(filter);
+          return api[method](filter);
         });
       };
-      const injected = () => ({ query, t });
+      // query 读 host 缓存（调度器每 2 分钟保鲜）；refresh 强制现场查询，
+      // 只用于用户手动触发的刷新。
+      const query = (filter) => callRemote("query", filter);
+      const refresh = (filter) => callRemote("refresh", filter);
+      const injected = () => ({ query, refresh, t });
 
       ctx.slots.inject("settings.section", () => ctx.slots.register({
         name: "settings.section",
@@ -732,6 +761,7 @@ window.__ModuleLoader__.load({
                   if (available && directory) directory.load().catch(() => {});
                 },
                 query,
+                refresh,
                 t,
               };
             },

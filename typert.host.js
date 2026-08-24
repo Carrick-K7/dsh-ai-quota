@@ -95,6 +95,30 @@ export const TYPERT = {
         schema: resultSchema,
       },
     },
+    {
+      id: "dsh-ai-quota#aiQuota/refresh",
+      service: "aiQuota",
+      namespace: "aiQuota",
+      method: "refresh",
+      invocation: { kind: "direct" },
+      parameters: [
+        {
+          name: "filter",
+          wire: "filter",
+          source: "json",
+          codec: {
+            mode: "strict",
+            typeSymbol: "dsh-ai-quota#ProvidersFilter",
+            schema: providersFilter,
+          },
+        },
+      ],
+      result: {
+        mode: "strict",
+        typeSymbol: "dsh-ai-quota#AiQuotaResult",
+        schema: resultSchema,
+      },
+    },
   ],
   model: { services: [], events: [], objects: [] },
 };
