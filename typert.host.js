@@ -29,6 +29,14 @@ const codexProvider = z.object({
   windows: z.array(usageWindow),
 });
 
+// kimi / opencodeGo additionally carry keyConfigured (mirrors the host's
+// PROVIDER_DEFAULTS and the deepseek shape); codex needs no key, so it has
+// no such field. Keeping the field on the wire instead of letting zod strip
+// it keeps the Remote result byte-consistent with index.js.
+const keyedSubscriptionProvider = codexProvider.extend({
+  keyConfigured: z.boolean(),
+});
+
 const balanceInfo = z.object({
   currency: z.string(),
   totalBalance: z.string().nullable(),
@@ -46,21 +54,13 @@ const deepseekProvider = z.object({
   balances: z.array(balanceInfo),
 });
 
-const opencodeGoProvider = z.object({
-  kind: z.string(),
-  status: z.string(),
-  keyConfigured: z.boolean(),
-  error: z.string().nullable(),
-  windows: z.array(usageWindow),
-});
-
 const resultSchema = z.object({
   fetchedAt: z.string(),
   providers: z.object({
     codex: codexProvider,
-    kimi: codexProvider,
+    kimi: keyedSubscriptionProvider,
     deepseek: deepseekProvider,
-    opencodeGo: opencodeGoProvider,
+    opencodeGo: keyedSubscriptionProvider,
   }),
 });
 

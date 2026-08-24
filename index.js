@@ -181,6 +181,12 @@ function safeLabel(value, max = 48) {
   return cleaned.length > 0 ? cleaned : null;
 }
 
+/** Balance fields arrive as strings (DeepSeek API); accept numbers too. */
+function balanceLabel(value, max = 32) {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return safeLabel(value, max);
+}
+
 // ---------------------------------------------------------------------------
 // Codex provider: `codex app-server --stdio` JSON-RPC (newline-delimited JSON)
 // ---------------------------------------------------------------------------
@@ -404,9 +410,9 @@ async function queryDeepSeek(ctx, config, timeoutMs) {
       available: typeof body.is_available === "boolean" ? body.is_available : null,
       balances: infos.map((b) => ({
         currency: safeLabel(b.currency, 8) || "?",
-        totalBalance: safeLabel(b.total_balance, 32),
-        grantedBalance: safeLabel(b.granted_balance, 32),
-        toppedUpBalance: safeLabel(b.topped_up_balance, 32),
+        totalBalance: balanceLabel(b.total_balance),
+        grantedBalance: balanceLabel(b.granted_balance),
+        toppedUpBalance: balanceLabel(b.topped_up_balance),
       })),
     };
   } catch {

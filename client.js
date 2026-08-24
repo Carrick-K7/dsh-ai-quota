@@ -435,8 +435,6 @@ window.__ModuleLoader__.load({
       return null;
     }
 
-    // Chip data: provider → { value, at }. Seeded from the shared page cache;
-    // fresh results are written back to it so both surfaces stay consistent.
     // Chip data: provider → { value, at, status }. Seeded from the shared page
     // cache; fresh results are written back to it so both surfaces stay
     // consistent. status: "ready" | "loading" | "error" — stale data stays
