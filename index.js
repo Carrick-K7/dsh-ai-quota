@@ -823,7 +823,7 @@ const PROVIDER_DEFAULTS = {
   codex: { kind: "subscription", status: "skipped", error: null, plan: null, windows: [] },
   kimi: { kind: "subscription", status: "skipped", keyConfigured: false, error: null, plan: null, windows: [] },
   deepseek: { kind: "balance", status: "skipped", keyConfigured: false, error: null, available: null, balances: [] },
-  opencodeGo: { kind: "subscription", status: "skipped", keyConfigured: false, error: null, windows: [] },
+  opencodeGo: { kind: "subscription", status: "skipped", keyConfigured: false, error: null, plan: null, windows: [] },
 };
 
 export class AiQuotaGateway extends TypertRemoteService {
@@ -948,7 +948,7 @@ export class AiQuotaGateway extends TypertRemoteService {
       } else if (name === "deepseek") {
         providers.deepseek = { ...base, status: raw.status, keyConfigured: raw.keyConfigured ?? false, error: raw.error, available: raw.available ?? null, balances: toBalanceInfos(raw.balances) };
       } else {
-        providers.opencodeGo = { ...base, status: raw.status, keyConfigured: raw.keyConfigured ?? false, error: raw.error, windows: toSubscriptionWindows(raw.windows) };
+        providers.opencodeGo = { ...base, status: raw.status, keyConfigured: raw.keyConfigured ?? false, error: raw.error, plan: raw.plan ?? null, windows: toSubscriptionWindows(raw.windows) };
       }
     });
     // 未请求的 provider 以默认形状（status: "skipped"）填充。

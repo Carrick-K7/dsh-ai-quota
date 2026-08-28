@@ -43,7 +43,6 @@ window.__ModuleLoader__.load({
       resetInHour: "{n} 小时后重置",
       resetInDay: "{n} 天后重置",
       resetPassed: "已到重置时间",
-      chipToggle: "输入框显示用量",
       chipRefresh: "点击刷新",
       noWindowData: "无窗口数据",
       noBalanceData: "无余额数据",
@@ -79,7 +78,6 @@ window.__ModuleLoader__.load({
       resetInHour: "resets in {n} h",
       resetInDay: "resets in {n} d",
       resetPassed: "reset time passed",
-      chipToggle: "Composer chip",
       noWindowData: "no window data",
       noBalanceData: "no balance data",
       window5h: "5h",
@@ -158,23 +156,23 @@ window.__ModuleLoader__.load({
     const styles = {
       wrap: { maxWidth: 680, display: "flex", flexDirection: "column", gap: 10, padding: "4px 0" },
       head: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "0 2px" },
-      title: { fontSize: 15, fontWeight: 600, margin: 0, letterSpacing: "-.01em" },
+      title: { fontSize: 16, fontWeight: 600, margin: 0, letterSpacing: "-.01em" },
       headRight: { display: "flex", alignItems: "center", gap: 8 },
-      updated: { color: MUTED, fontSize: 12, margin: 0 },
+      updated: { color: MUTED, fontSize: 13, margin: 0 },
       list: { border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 12, padding: "2px 16px", background: "var(--dsw-alias-bg-layer-3)" },
       provider: { padding: "12px 0", display: "flex", flexDirection: "column", gap: 8 },
       providerDivider: { borderTop: "1px solid var(--dsw-alias-border-l1)" },
       providerHead: { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 },
-      providerName: { fontSize: 13, fontWeight: 600, margin: 0, display: "flex", alignItems: "center", gap: 7 },
+      providerName: { fontSize: 14, fontWeight: 600, margin: 0, display: "flex", alignItems: "center", gap: 7 },
       statusDot: { width: 7, height: 7, borderRadius: "50%", display: "inline-block", flex: "none" },
       windowRow: { display: "grid", gridTemplateColumns: "minmax(40px, max-content) minmax(60px, 1fr) auto", alignItems: "center", gap: 12, minHeight: 20 },
-      windowLabel: { fontSize: 12, color: "var(--dsw-alias-label-secondary)", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+      windowLabel: { fontSize: 13, color: "var(--dsw-alias-label-secondary)", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
       barTrack: { height: 5, borderRadius: 999, background: "var(--dsw-alias-bg-layer-1)", border: "1px solid var(--dsw-alias-border-l2)", boxSizing: "border-box", overflow: "hidden" },
-      windowStat: { fontSize: 12, margin: 0, display: "flex", alignItems: "baseline", gap: 6, whiteSpace: "nowrap" },
-      windowPct: { fontWeight: 600, fontSize: 12, minWidth: 34, textAlign: "right", display: "inline-block" },
+      windowStat: { fontSize: 13, margin: 0, display: "flex", alignItems: "baseline", gap: 6, whiteSpace: "nowrap" },
+      windowPct: { fontWeight: 600, fontSize: 13, minWidth: 34, textAlign: "right", display: "inline-block" },
       windowReset: { color: MUTED },
-      hint: { color: MUTED, fontSize: 12, lineHeight: 1.6, margin: 0 },
-      error: { color: "var(--dsw-alias-state-error-primary)", fontSize: 12, lineHeight: 1.6, margin: 0 },
+      hint: { color: MUTED, fontSize: 13, lineHeight: 1.6, margin: 0 },
+      error: { color: "var(--dsw-alias-state-error-primary)", fontSize: 13, lineHeight: 1.6, margin: 0 },
       amount: { fontSize: 16, fontWeight: 700, margin: 0, letterSpacing: "-.01em", color: "var(--dsw-alias-label-primary)", whiteSpace: "nowrap" },
       chipName: { color: "var(--dsw-alias-label-secondary)", fontWeight: 600 },
       chipValue: { fontWeight: 600, color: "var(--dsw-alias-label-primary)" },
@@ -204,10 +202,6 @@ window.__ModuleLoader__.load({
         ".dsh-ab-chip:hover{background:var(--dsw-alias-bg-layer-1)}",
         ".dsh-ab-skel{animation:dsh-ab-pulse 1.3s ease-in-out infinite}",
         "@keyframes dsh-ab-pulse{0%,100%{opacity:.35}50%{opacity:.85}}",
-        ".dsh-ab-switch{position:relative;display:inline-flex;align-items:center;width:26px;height:15px;border-radius:999px;border:none;padding:0;cursor:pointer;background:var(--dsw-alias-border-l2);transition:background .15s ease;vertical-align:middle}",
-        ".dsh-ab-switch[data-on=true]{background:#15847e}",
-        ".dsh-ab-switch::after{content:'';position:absolute;left:2px;top:2px;width:11px;height:11px;border-radius:50%;background:#fff;transition:transform .15s ease}",
-        ".dsh-ab-switch[data-on=true]::after{transform:translateX(11px)}",
         // Hero fallback placement: the hero composer is a flex column where the
         // token heatmap's root uses order:99 to drop below the input card. Our
         // chip span is a direct seat child (the seat is display:contents), so
@@ -325,7 +319,7 @@ window.__ModuleLoader__.load({
       const b = (value.balances || [])[0];
       if (!b || b.totalBalance === null || b.totalBalance === undefined) return null;
       return React.createElement("p", { style: styles.amount },
-        React.createElement("span", { style: { fontSize: 12, fontWeight: 600, color: "var(--dsw-alias-label-secondary)", marginRight: 2 } }, currencySymbol(b.currency)),
+        React.createElement("span", { style: { fontSize: 13, fontWeight: 600, color: "var(--dsw-alias-label-secondary)", marginRight: 2 } }, currencySymbol(b.currency)),
         b.totalBalance
       );
     }
@@ -399,31 +393,14 @@ window.__ModuleLoader__.load({
     // no composer.dock seat — it falls back to conversation.input.dock,
     // stacked above the token heatmap.
 
+    // The composer quota chip is always on: no user switch exists, and no
+    // persisted off-state can hide it from the new-chat page.
     const CHIP_SEATS = [
       ["above", "conversation.input.dock", 5],
       ["below", "conversation.composer.dock", 30],
     ];
     const CHIP_TTL_MS = 10 * 60 * 1000;
     const CHIP_MIN_ATTEMPT_MS = 60 * 1000;
-
-    // On/off switch, persisted in localStorage, effective immediately.
-    const ENABLED_KEY = "dsh-ai-quota.chipEnabled";
-    function isChipEnabled() {
-      try {
-        return window.localStorage.getItem(ENABLED_KEY) !== "0";
-      } catch {
-        return true;
-      }
-    }
-    const enabledListeners = new Set();
-    function setChipEnabled(v) {
-      try { window.localStorage.setItem(ENABLED_KEY, v ? "1" : "0"); } catch { /* ignore */ }
-      enabledListeners.forEach((f) => f());
-    }
-    function subscribeChipEnabled(fn) {
-      enabledListeners.add(fn);
-      return () => enabledListeners.delete(fn);
-    }
 
     /** Heuristic: DSH model selection (provider route + model id) → our provider. */
     function mapModelToProvider(provider, model) {
@@ -515,7 +492,6 @@ window.__ModuleLoader__.load({
 
     function BalanceChip(props) {
       const { seat, available, directory, load, query, refresh, t } = props;
-      const enabled = React.useSyncExternalStore(subscribeChipEnabled, isChipEnabled);
       const subscribeDirectory = React.useCallback(
         (cb) => (directory ? directory.subscribe(cb) : () => {}),
         [directory]
@@ -548,7 +524,7 @@ window.__ModuleLoader__.load({
       }, [seat]);
 
       const visible = seat === "below" || dockPresent === false;
-      if (!visible || !available || !enabled) return null;
+      if (!visible || !available) return null;
 
       const name = provider ? t("provider" + provider.charAt(0).toUpperCase() + provider.slice(1)) : null;
       const value = record && record.value && record.value.status === "ok" ? record.value : null;
@@ -667,22 +643,10 @@ window.__ModuleLoader__.load({
       };
 
       const updated = fmtUpdatedAt(cards.fetchedAt, t);
-      const chipOn = React.useSyncExternalStore(subscribeChipEnabled, isChipEnabled);
       return React.createElement("div", { style: styles.wrap },
         React.createElement("div", { style: styles.head },
           React.createElement("h2", { style: styles.title }, t("title")),
           React.createElement("div", { style: styles.headRight },
-            React.createElement("label", { style: { display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" } },
-              React.createElement("span", { style: { color: MUTED, fontSize: 12 } }, t("chipToggle")),
-              React.createElement("button", {
-                className: "dsh-ab-switch",
-                "data-on": chipOn ? "true" : "false",
-                role: "switch",
-                "aria-checked": chipOn ? "true" : "false",
-                "aria-label": t("chipToggle"),
-                onClick: () => setChipEnabled(!chipOn),
-              })
-            ),
             updated ? React.createElement("p", { style: styles.updated }, updated) : null,
             React.createElement("button", {
               className: "dsh-ab-refresh" + (refreshingAny ? " spinning" : ""),
