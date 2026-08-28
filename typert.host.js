@@ -7,8 +7,9 @@
 // conversion layer:
 //   - subscription providers (codex / kimi / opencodeGo): windows[] with
 //     usedPercent + remainingPercent + resetsAt
-//   - balance provider (deepseek): balances[] with remainingAmount numeric
-//     plus string breakdown (total / granted / topped-up)
+//   - balance providers (deepseek / ai302): balances[] with remainingAmount
+//     numeric plus string breakdown (total / granted / topped-up); 302.AI
+//     returns no currency, so its currency field is null.
 import { z } from "zod";
 
 const usageWindow = z
@@ -38,7 +39,7 @@ const keyedSubscriptionProvider = codexProvider.extend({
 });
 
 const balanceInfo = z.object({
-  currency: z.string(),
+  currency: z.string().nullable(),
   totalBalance: z.string().nullable(),
   grantedBalance: z.string().nullable(),
   toppedUpBalance: z.string().nullable(),
@@ -60,6 +61,7 @@ const resultSchema = z.object({
     codex: codexProvider,
     kimi: keyedSubscriptionProvider,
     deepseek: deepseekProvider,
+    ai302: deepseekProvider,
     opencodeGo: keyedSubscriptionProvider,
   }),
 });

@@ -27,11 +27,13 @@ window.__ModuleLoader__.load({
       providerCodex: "Codex",
       providerKimi: "Kimi",
       providerDeepseek: "DeepSeek",
+      providerAi302: "302.AI",
       providerOpencodeGo: "OpenCode Go",
       statusNotConfigured: "未配置 API Key",
       statusNotInstalled: "未安装 codex CLI",
       statusError: "查询失败",
       noApiKeyDeepseek: "未找到 DeepSeek API Key（默认环境变量 DEEPSEEK_API_KEY，可在插件配置中改环境变量名）。",
+      noApiKey302: "未找到 302.AI API Key（默认 DSH 凭据 AI_302_API_KEY，可在插件配置中改环境变量名）。",
       noApiKeyOpencode: "未找到 OpenCode Go API Key（默认环境变量 OPENCODE_GO_API_KEY，或 ~/.local/share/opencode/auth.json 的 opencode-go 条目）。",
       noCredentialsKimi: "未找到 Kimi 登录态（~/.kimi-code/credentials/kimi-code.json），请先运行 kimi login。",
       loginExpired: "Kimi 登录态已过期，请运行 kimi login 重新登录。",
@@ -62,11 +64,13 @@ window.__ModuleLoader__.load({
       providerCodex: "Codex",
       providerKimi: "Kimi",
       providerDeepseek: "DeepSeek",
+      providerAi302: "302.AI",
       providerOpencodeGo: "OpenCode Go",
       statusNotConfigured: "API key not configured",
       statusNotInstalled: "codex CLI not installed",
       statusError: "Query failed",
       noApiKeyDeepseek: "No DeepSeek API key found (default env var DEEPSEEK_API_KEY; rename via plugin config).",
+      noApiKey302: "No 302.AI API key found (DSH credential AI_302_API_KEY; rename via plugin config).",
       noApiKeyOpencode: "No OpenCode Go API key found (default env var OPENCODE_GO_API_KEY, or the opencode-go entry in ~/.local/share/opencode/auth.json).",
       noCredentialsKimi: "No Kimi login state found (~/.kimi-code/credentials/kimi-code.json); run kimi login first.",
       loginExpired: "Kimi login expired; run kimi login to sign in again.",
@@ -261,6 +265,7 @@ window.__ModuleLoader__.load({
       const e = value.error || "";
       if (value.status === "not-configured") {
         if (name === "deepseek") return t("noApiKeyDeepseek");
+        if (name === "ai302") return t("noApiKey302");
         if (name === "kimi") return e === "login-expired" ? t("loginExpired") : t("noCredentialsKimi");
         return t("noApiKeyOpencode");
       }
@@ -362,7 +367,7 @@ window.__ModuleLoader__.load({
 
     // ---- cache + per-provider independent loading ----
     const CACHE_KEY = "dsh-ai-quota.cache.v1";
-    const PROVIDER_NAMES = ["codex", "kimi", "opencodeGo", "deepseek"];
+    const PROVIDER_NAMES = ["codex", "kimi", "opencodeGo", "deepseek", "ai302"];
 
     function loadCache() {
       try {
@@ -404,7 +409,11 @@ window.__ModuleLoader__.load({
 
     /** Heuristic: DSH model selection (provider route + model id) → our provider. */
     function mapModelToProvider(provider, model) {
-      const s = ((provider || "") + "/" + (model || "")).toLowerCase();
+      const route = ((provider || "") + "").toLowerCase();
+      const s = route + "/" + (model || "").toLowerCase();
+      // 302.AI is a relay: its model ids can contain any vendor name
+      // (deepseek-*, gpt-*, kimi-*), so only the route can identify it.
+      if (route.indexOf("302") >= 0) return "ai302";
       if (s.indexOf("kimi") >= 0 || s.indexOf("moonshot") >= 0) return "kimi";
       if (s.indexOf("codex") >= 0 || s.indexOf("openai") >= 0 || s.indexOf("gpt") >= 0) return "codex";
       if (s.indexOf("deepseek") >= 0) return "deepseek";
@@ -623,10 +632,46 @@ window.__ModuleLoader__.load({
           });
       }, [query, refresh]);
 
-      // 挂载走缓存（host 调度器保鲜）；刷新按钮强制现场查询。
+      // 全面板只发一次 Remote 请求：Host 的 query/refresh 本来就返回完整快照。
+      // 旧实现按 provider 连发四次 RPC，冷启动/手动刷新时会重复经过
+      // Typert + HTTP 边界，并让界面等待四个独立请求全部落定。
       const refreshAll = React.useCallback((force) => {
-        for (const name of PROVIDER_NAMES) refreshOne(name, force);
-      }, [refreshOne]);
+        setCards((s) => ({
+          ...s,
+          state: Object.fromEntries(PROVIDER_NAMES.map((name) => [name, "loading"])),
+          errors: {},
+        }));
+        Promise.resolve()
+          .then(() => (force ? refresh : query)(null))
+          .then((result) => {
+            if (!result || result.ok === false) {
+              throw new Error((result && result.error && result.error.message) || "remote failed");
+            }
+            if (!mounted.current) return;
+            const incoming = (result.value && result.value.providers) || {};
+            setCards((s) => {
+              const providers = { ...s.providers };
+              const state = { ...s.state };
+              for (const name of PROVIDER_NAMES) {
+                const prov = incoming[name];
+                if (prov && prov.status !== "skipped") providers[name] = prov;
+                state[name] = "done";
+              }
+              const fetchedAt = (result.value && result.value.fetchedAt) || s.fetchedAt;
+              saveCache({ fetchedAt, providers });
+              return { ...s, providers, fetchedAt, state, errors: {} };
+            });
+          })
+          .catch((e) => {
+            if (!mounted.current) return;
+            const message = String((e && e.message) || e);
+            setCards((s) => ({
+              ...s,
+              state: Object.fromEntries(PROVIDER_NAMES.map((name) => [name, "error"])),
+              errors: Object.fromEntries(PROVIDER_NAMES.map((name) => [name, message])),
+            }));
+          });
+      }, [query, refresh]);
 
       React.useEffect(() => { refreshAll(false); }, [refreshAll]);
 
@@ -660,7 +705,8 @@ window.__ModuleLoader__.load({
           renderProvider("codex", null, React.createElement(SubscriptionBody, { value: cards.providers.codex || {}, t }), false),
           renderProvider("kimi", null, React.createElement(SubscriptionBody, { value: cards.providers.kimi || {}, t }), true),
           renderProvider("opencodeGo", null, React.createElement(SubscriptionBody, { value: cards.providers.opencodeGo || {}, t }), true),
-          renderProvider("deepseek", React.createElement(BalanceHead, { value: cards.providers.deepseek || {}, t }), React.createElement(BalanceBody, { value: cards.providers.deepseek || {}, t }), true)
+          renderProvider("deepseek", React.createElement(BalanceHead, { value: cards.providers.deepseek || {}, t }), React.createElement(BalanceBody, { value: cards.providers.deepseek || {}, t }), true),
+          renderProvider("ai302", React.createElement(BalanceHead, { value: cards.providers.ai302 || {}, t }), React.createElement(BalanceBody, { value: cards.providers.ai302 || {}, t }), true)
         )
       );
     }
