@@ -2,7 +2,15 @@
 
 A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that shows your AI subscription quotas & balances — **Codex**, **Kimi**, **DeepSeek**, **302.AI**, **OpenCode Go** — in one place.
 
+[![DSH plugin](https://img.shields.io/badge/DSH%20plugin-topic%3Adsh--plugin-2ea44f?style=flat-square)](https://github.com/topics/dsh-plugin) [![GitHub stars](https://img.shields.io/github/stars/Carrick-K7/dsh-ai-quota?style=flat-square)](https://github.com/Carrick-K7/dsh-ai-quota) [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](./LICENSE)
+
 English · [中文](README.zh-CN.md)
+
+## Preview
+
+![AI Quota settings page](docs/settings.png)
+
+*Settings page: per-window usage bars (Codex / Kimi / OpenCode Go) and plain balances (DeepSeek, 302.AI), with manual refresh and a composer chip that follows the selected model.*
 
 ## Features
 

@@ -2,7 +2,15 @@
 
 DeepSeek Harness 插件：查询你的 AI 订阅额度 / 余额 —— **Codex**、**Kimi**、**DeepSeek**、**302.AI**、**OpenCode Go** 五个 provider 一处可见。
 
+[![DSH plugin](https://img.shields.io/badge/DSH%20plugin-topic%3Adsh--plugin-2ea44f?style=flat-square)](https://github.com/topics/dsh-plugin) [![GitHub stars](https://img.shields.io/github/stars/Carrick-K7/dsh-ai-quota?style=flat-square)](https://github.com/Carrick-K7/dsh-ai-quota) [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](./LICENSE)
+
 [English](README.md) · 中文
+
+## 预览
+
+![AI Quota 设置页](docs/settings.png)
+
+*设置页：Codex / Kimi / OpenCode Go 的用量进度条 + DeepSeek / 302.AI 的简洁余额，手动刷新，以及跟随当前模型的输入框额度行。*
 
 ## 功能
 
