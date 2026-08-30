@@ -562,7 +562,12 @@ window.__ModuleLoader__.load({
           React.createElement("b", { style: styles.chipValue }, currencySymbol(b.currency) + b.totalBalance)
         );
       }
-      const windows = (value.windows || []).filter(Boolean);
+      let windows = (value.windows || []).filter(Boolean);
+      // Codex: the account-level aggregate is the useful one-line readout —
+      // per-model extra windows (e.g. GPT-5.3-Codex-Spark) clutter the chip,
+      // and its 5h window overlaps the 7d story. Keep only the 7d window in
+      // the chip; the settings page still shows every window.
+      if (provider === "codex") windows = windows.filter((w) => w.name === "7d");
       if (windows.length === 0) return null;
       return React.createElement("span", {
         className: chipClass,
