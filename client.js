@@ -682,12 +682,20 @@ window.__ModuleLoader__.load({
 
       const refreshingAny = PROVIDER_NAMES.some((n) => cards.state[n] === "loading");
 
+      // Providers that were never detected — no key configured, CLI not
+      // installed, or not covered by the current request — leave the page
+      // clean: their row is hidden until something is configured, then it
+      // appears automatically on the next refresh. Real errors (HTTP 401,
+      // timeouts) stay visible for diagnosis.
+      const HIDDEN_STATUSES = ["skipped", "not-configured", "not-installed"];
+
       const renderProvider = (name, headExtra, body, divider) => {
         const st = cards.state[name];
         const prov = cards.providers[name];
         const value = st === "error"
           ? { status: "error", error: cards.errors[name] || "unknown" }
           : prov || { status: st === "loading" ? "loading" : "skipped" };
+        if (HIDDEN_STATUSES.includes(value.status)) return null;
         const titleKey = "provider" + name.charAt(0).toUpperCase() + name.slice(1);
         return React.createElement(ProviderBlock, { key: name, name, title: t(titleKey), value, t, headExtra, divider }, body);
       };
