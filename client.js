@@ -755,7 +755,11 @@ window.__ModuleLoader__.load({
       // Composer chip: register into every candidate seat; the component
       // renders only in the selected one. Runs in its own dependent fiber so
       // a missing model-selection service never blocks the settings page.
-      ctx.inject(["slots", "modelDirectories", "sessions"], (scope) => {
+      // `remote` + `remote.session` are required by the modelDirectories
+      // service: its directoryFor() reaches ctx.remote.session, and cordis
+      // enforces the consumer's own inject list. Without them directoryFor()
+      // throws and the chip would silently stay hidden.
+      ctx.inject(["slots", "modelDirectories", "sessions", "remote", "remote.session"], (scope) => {
         const models = scope.modelDirectories || scope.get("modelDirectories");
         const sessions = scope.sessions;
         for (const [posKey, seat, seatOrder] of CHIP_SEATS) {
