@@ -153,9 +153,14 @@ window.__ModuleLoader__.load({
     // One slim list, hairline separators, no cards. Usage bars use a solid
     // severity color (emerald → amber → red) instead of a full-width
     // gradient: the color answers "should I worry" at a glance.
-    const COLOR_OK = "#10b981";
-    const COLOR_WARN = "#f59e0b";
-    const COLOR_CRIT = "#ef4444";
+    //
+    // Every color is a CSS variable with the shipped value as its fallback,
+    // so a skin can repaint the readouts without touching the code: when the
+    // miku skin is detected the module sets [data-dsh-aq-miku] on <html> and
+    // the stylesheet below swaps in soft Hatsune teals.
+    const COLOR_OK = "var(--dsh-aq-ok, #10b981)";
+    const COLOR_WARN = "var(--dsh-aq-warn, #f59e0b)";
+    const COLOR_CRIT = "var(--dsh-aq-crit, #ef4444)";
     const MUTED = "var(--dsw-alias-label-tertiary)";
     const styles = {
       wrap: { maxWidth: 680, display: "flex", flexDirection: "column", gap: 10, padding: "4px 0" },
@@ -177,13 +182,13 @@ window.__ModuleLoader__.load({
       windowReset: { color: MUTED },
       hint: { color: MUTED, fontSize: 13, lineHeight: 1.6, margin: 0 },
       error: { color: "var(--dsw-alias-state-error-primary)", fontSize: 13, lineHeight: 1.6, margin: 0 },
-      amount: { fontSize: 16, fontWeight: 700, margin: 0, letterSpacing: "-.01em", color: "var(--dsw-alias-label-primary)", whiteSpace: "nowrap" },
-      chipName: { color: "var(--dsw-alias-label-secondary)", fontWeight: 600 },
-      chipValue: { fontWeight: 600, color: "var(--dsw-alias-label-primary)" },
+      amount: { fontSize: 16, fontWeight: 700, margin: 0, letterSpacing: "-.01em", color: "var(--dsh-aq-accent, var(--dsw-alias-label-primary))", whiteSpace: "nowrap" },
+      chipName: { color: "var(--dsh-aq-name, var(--dsw-alias-label-secondary))", fontWeight: 600 },
+      chipValue: { fontWeight: 600, color: "var(--dsh-aq-accent, var(--dsw-alias-label-primary))" },
       chipSeg: { display: "inline-flex", alignItems: "center", gap: 6 },
-      chipSegLabel: { color: MUTED },
-      chipSegReset: { color: MUTED },
-      chipMiniTrack: { display: "inline-block", width: 44, height: 4, borderRadius: 999, border: "1px solid var(--dsw-alias-border-l2)", boxSizing: "border-box", background: "var(--dsw-alias-bg-layer-1)", overflow: "hidden" },
+      chipSegLabel: { color: "var(--dsh-aq-label, " + MUTED + ")" },
+      chipSegReset: { color: "var(--dsh-aq-label, " + MUTED + ")" },
+      chipMiniTrack: { display: "inline-block", width: 44, height: 4, borderRadius: 999, border: "1px solid var(--dsh-aq-track-border, var(--dsw-alias-border-l2))", boxSizing: "border-box", background: "var(--dsh-aq-track, var(--dsw-alias-bg-layer-1))", overflow: "hidden" },
       chipMiniFill: { display: "block", height: "100%", borderRadius: 999 },
       skelBar: { display: "inline-block", width: 44, height: 4, borderRadius: 999, background: "var(--dsw-alias-border-l2)" },
       skelText: { display: "inline-block", width: 68, height: 9, borderRadius: 5, background: "var(--dsw-alias-border-l2)" },
@@ -203,7 +208,14 @@ window.__ModuleLoader__.load({
         ".dsh-ab-refresh.spinning svg{animation:dsh-ab-spin .9s linear infinite}",
         "@keyframes dsh-ab-spin{to{transform:rotate(360deg)}}",
         ".dsh-ab-chip{display:inline-flex;align-items:baseline;gap:5px;font-size:12px;line-height:20px;cursor:pointer;user-select:none;white-space:nowrap;padding:0 2px;border-radius:6px}",
-        ".dsh-ab-chip:hover{background:var(--dsw-alias-bg-layer-1)}",
+        ".dsh-ab-chip:hover{background:var(--dsh-aq-hover, var(--dsw-alias-bg-layer-1))}",
+        // Miku skin palette: opt-in Hatsune teals. The [data-dsh-aq-miku]
+        // flag lands on <html> only while dsk-miku-skin is loaded, and the
+        // dark block keys off the skin's own body[data-ds-dark-theme] theme
+        // attribute — so without the skin every readout keeps its shipped
+        // emerald/amber/red severity colors.
+        "[data-dsh-aq-miku]{--dsh-aq-ok:#22a39b;--dsh-aq-accent:#15847e;--dsh-aq-name:#2f9d94;--dsh-aq-label:#5b7874;--dsh-aq-track:rgba(34,163,155,.14);--dsh-aq-track-border:rgba(34,163,155,.24);--dsh-aq-hover:rgba(34,163,155,.08)}",
+        "[data-dsh-aq-miku] body[data-ds-dark-theme]{--dsh-aq-ok:#39c5bb;--dsh-aq-accent:#6ed6ce;--dsh-aq-name:#39c5bb;--dsh-aq-label:#7a9a96;--dsh-aq-track:rgba(57,197,187,.16);--dsh-aq-track-border:rgba(57,197,187,.26);--dsh-aq-hover:rgba(57,197,187,.10)}",
         ".dsh-ab-skel{animation:dsh-ab-pulse 1.3s ease-in-out infinite}",
         "@keyframes dsh-ab-pulse{0%,100%{opacity:.35}50%{opacity:.85}}",
         // Hero fallback placement: the hero composer is a flex column where the
@@ -214,6 +226,30 @@ window.__ModuleLoader__.load({
         '[data-slot="conversation.input.dock"]>.dsh-ab-chip{order:50;align-self:center}',
       ].join("\n");
       document.head.appendChild(el);
+    }
+
+    /**
+     * Skin bridge: flag <html> while the miku skin's stylesheet is mounted, so
+     * the CSS variable swap above applies. Pure CSS variable inheritance means
+     * the repaint needs no React re-render, and the observer handles the skin
+     * loading after this plugin (it is a separate client plugin).
+     */
+    const MIKU_ATTR = "data-dsh-aq-miku";
+    function syncMikuSkin() {
+      try {
+        const on = !!document.querySelector('style[data-plugin-css^="dsk-miku-skin"], style[data-plugin="dsk-miku-skin"]');
+        const root = document.documentElement;
+        if (on !== root.hasAttribute(MIKU_ATTR)) root.toggleAttribute(MIKU_ATTR, on);
+      } catch {
+        /* ignore */
+      }
+    }
+    function watchMikuSkin() {
+      syncMikuSkin();
+      if (typeof MutationObserver !== "function" || typeof document === "undefined") return () => {};
+      const mo = new MutationObserver(syncMikuSkin);
+      mo.observe(document.head, { childList: true, subtree: true });
+      return () => mo.disconnect();
     }
 
     const RefreshIcon = () =>
@@ -324,7 +360,7 @@ window.__ModuleLoader__.load({
       const b = (value.balances || [])[0];
       if (!b || b.totalBalance === null || b.totalBalance === undefined) return null;
       return React.createElement("p", { style: styles.amount },
-        React.createElement("span", { style: { fontSize: 13, fontWeight: 600, color: "var(--dsw-alias-label-secondary)", marginRight: 2 } }, currencySymbol(b.currency)),
+        React.createElement("span", { style: { fontSize: 13, fontWeight: 600, color: "var(--dsh-aq-name, var(--dsw-alias-label-secondary))", marginRight: 2 } }, currencySymbol(b.currency)),
         b.totalBalance
       );
     }
@@ -728,6 +764,7 @@ window.__ModuleLoader__.load({
       const mountReady = ctx.remote.$mount(TYPERT_REMOTE);
       ctx.effect(() => ctx.locale.register(NS, { zh, en }), "dsh-ai-quota: dictionaries");
       ctx.effect(ensureStyleTag, "dsh-ai-quota: styles");
+      ctx.effect(watchMikuSkin, "dsh-ai-quota: miku skin flag");
       const t = ctx.locale.bind(NS);
 
       const callRemote = (method, filter) => {

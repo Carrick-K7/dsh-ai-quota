@@ -19,6 +19,7 @@ English · [中文](README.zh-CN.md)
 - **Composer chip** — a one-line quota indicator that follows the selected model, on both the new-chat page and in sessions.
 - **Auto-refresh** — the host re-queries all providers every `refreshIntervalMs` (default 2 min; `0` disables) and serves a warm cache, so every surface reads instantly.
 - **Unified format** — providers are normalized to `subscription` windows or `balance` entries; one provider failing never affects the others.
+- **Skin-aware palette** — every readout color is a CSS variable: with the [dsh-miku-skin](https://github.com/topics/dsh-plugin) Hatsune skin loaded the chip and usage bars turn soft Miku teal, and without it they keep the shipped emerald/amber/red severity colors.
 - **No secrets in output** — API keys and tokens never appear in tool output or logs.
 
 ## Install
