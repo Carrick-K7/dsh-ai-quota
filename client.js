@@ -6,6 +6,8 @@
 //   - subscription providers (Codex / OpenCode Go): one compact meter row per
 //     quota window — label, slim usage bar, used %, relative reset time
 //   - balance provider (DeepSeek): remaining amount + granted/topped-up split
+// The composer chip resolves its quota provider from the selected DSH provider
+// ROUTE (never the model id); see resolveQuotaProvider below.
 window.__ModuleLoader__.load({
   id: "dsh-ai-quota",
   factory: (require) => {
@@ -428,11 +430,12 @@ window.__ModuleLoader__.load({
     }
 
     // ---- composer balance chip -----------------------------------------
-    // A minimal readout under the input box: current model → provider → its
-    // quota windows. Fixed seat: conversation.composer.dock (below the input
-    // card, next to the shipped stats line); on the new-chat hero — which has
-    // no composer.dock seat — it falls back to conversation.input.dock,
-    // stacked above the token heatmap.
+    // A minimal readout under the input box: current provider route → its
+    // quota account → that provider's windows. Fixed seat:
+    // conversation.composer.dock (below the input card, next to the shipped
+    // stats line); on the new-chat hero — which has no composer.dock seat —
+    // it falls back to conversation.input.dock, stacked above the token
+    // heatmap.
 
     // The composer quota chip is always on: no user switch exists, and no
     // persisted off-state can hide it from the new-chat page.
@@ -443,17 +446,52 @@ window.__ModuleLoader__.load({
     const CHIP_TTL_MS = 10 * 60 * 1000;
     const CHIP_MIN_ATTEMPT_MS = 60 * 1000;
 
-    /** Heuristic: DSH model selection (provider route + model id) → our provider. */
-    function mapModelToProvider(provider, model) {
-      const route = ((provider || "") + "").toLowerCase();
-      const s = route + "/" + (model || "").toLowerCase();
-      // 302.AI is a relay: its model ids can contain any vendor name
-      // (deepseek-*, gpt-*, kimi-*), so only the route can identify it.
-      if (route.indexOf("302") >= 0) return "ai302";
-      if (s.indexOf("kimi") >= 0 || s.indexOf("moonshot") >= 0) return "kimi";
-      if (s.indexOf("codex") >= 0 || s.indexOf("openai") >= 0 || s.indexOf("gpt") >= 0) return "codex";
-      if (s.indexOf("deepseek") >= 0) return "deepseek";
-      if (s.indexOf("opencode") >= 0) return "opencodeGo";
+    // ---- provider route → quota provider --------------------------------
+    // The chip must name the ACCOUNT the selected route bills, so the DSH
+    // provider ROUTE is the only authority. One model id is served by several
+    // routes with completely independent quotas — this deployment runs
+    // kimi-k3 on both `opencode-go-carrick` (an OpenCode Go plan) and
+    // `kimi-coding` (the Kimi subscription), and deepseek-flash on both
+    // `opencode-go-carrick` and `deepseek-official` — so a model-id guess
+    // prints another account's balance. An unrecognized route therefore shows
+    // no chip at all: a missing number beats a wrong one.
+    //
+    // Order matters only for a route whose id carries two vendor tokens
+    // (e.g. `opencode-302`): the more specific relay/aggregator wins.
+    const ROUTE_PROVIDERS = [
+      ["ai302", ["302"]],
+      ["opencodeGo", ["opencode"]],
+      ["codex", ["codex"]],
+      ["kimi", ["kimi", "moonshot"]],
+      ["deepseek", ["deepseek"]],
+    ];
+
+    /** Match one route id (or provider display name) against the vendor tokens. */
+    function providerFromText(text) {
+      const s = ((text || "") + "").toLowerCase();
+      if (!s) return null;
+      for (const [name, tokens] of ROUTE_PROVIDERS) {
+        for (const token of tokens) {
+          if (s.indexOf(token) >= 0) return name;
+        }
+      }
+      return null;
+    }
+
+    /**
+     * Resolve the quota provider for a DSH provider route. The route id is the
+     * primary signal; the route's own catalog group name is a fallback for an
+     * installation that registered the route under an opaque alias. The model
+     * id is deliberately never consulted.
+     */
+    function resolveQuotaProvider(route, groups) {
+      const direct = providerFromText(route);
+      if (direct) return direct;
+      const id = ((route || "") + "");
+      for (const g of Array.isArray(groups) ? groups : []) {
+        if (!g || ((g.id || "") + "") !== id) continue;
+        return providerFromText(g.name);
+      }
       return null;
     }
 
@@ -548,7 +586,7 @@ window.__ModuleLoader__.load({
       React.useEffect(() => { if (available && load) load(); }, [available, load]);
       const current = dirState ? dirState.current : null;
       const dirLoading = !!dirState && (dirState.status === "idle" || dirState.status === "loading");
-      const provider = available && current ? mapModelToProvider(current.provider, current.model) : null;
+      const provider = available && current ? resolveQuotaProvider(current.provider, dirState.groups) : null;
       React.useEffect(() => { if (provider) chipEnsure(query, refresh, provider, false); }, [provider, query, refresh]);
       const record = React.useSyncExternalStore(
         subscribeChipStore,
@@ -835,6 +873,8 @@ window.__ModuleLoader__.load({
     exports.NS = NS;
     exports.apply = apply;
     exports.inject = inject;
+    // Exposed for the standalone route-mapping test (.dev/test-provider-map.mjs).
+    exports.resolveQuotaProvider = resolveQuotaProvider;
     return module.exports;
   }
 });

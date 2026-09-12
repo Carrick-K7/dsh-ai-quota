@@ -10,13 +10,13 @@ English · [中文](README.zh-CN.md)
 
 ![AI Quota settings page](docs/settings.png)
 
-*Settings page: per-window usage bars (Codex / Kimi / OpenCode Go) and plain balances (DeepSeek, 302.AI), with manual refresh and a composer chip that follows the selected model.*
+*Settings page: per-window usage bars (Codex / Kimi / OpenCode Go) and plain balances (DeepSeek, 302.AI), with manual refresh and a composer chip that follows the selected provider route.*
 
 ## Features
 
 - **Model tool `query_ai_quota`** — ask any agent session to check your quota; returns a human-readable summary.
 - **Settings page** — an "AI Quota" section with per-window usage bars and balances, plus manual refresh.
-- **Composer chip** — a one-line quota indicator that follows the selected model, on both the new-chat page and in sessions.
+- **Composer chip** — a one-line quota indicator that follows the selected **provider route** (never the model id: the same model can be served by several routes with independent quotas), on both the new-chat page and in sessions.
 - **Auto-refresh** — the host re-queries all providers every `refreshIntervalMs` (default 2 min; `0` disables) and serves a warm cache, so every surface reads instantly.
 - **Unified format** — providers are normalized to `subscription` windows or `balance` entries; one provider failing never affects the others.
 - **Skin-aware palette** — every readout color is a CSS variable: with the [dsh-miku-skin](https://github.com/topics/dsh-plugin) Hatsune skin loaded the chip and usage bars turn soft Miku teal, and without it they keep the shipped emerald/amber/red severity colors.
@@ -48,6 +48,10 @@ All keys optional, defaults shown.
 | `kimiBaseUrl` | `https://api.kimi.com/coding/v1` | Kimi usage endpoint base (appends `/usages`) |
 | `kimiOauthHost` | `https://auth.kimi.com` | Kimi OAuth refresh endpoint (appends `/api/oauth/token`) |
 | `kimiClientId` | Kimi Code CLI's public client id | OAuth `client_id` (usually unchanged) |
+
+## Composer chip routing
+
+The chip reads the **provider route** of the current model selection (e.g. `opencode-go-carrick`, `kimi-coding`, `deepseek-official`, `openai-codex`) and never the model id — `kimi-k3` on an OpenCode Go route is an OpenCode Go quota, not a Kimi one. A route is recognized when its id (or, for an opaque alias, its provider display name) contains one of `302`, `opencode`, `codex`, `kimi`/`moonshot`, `deepseek`. Any other route shows no chip rather than another account's balance.
 
 ## Credentials
 
