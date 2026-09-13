@@ -435,7 +435,8 @@ window.__ModuleLoader__.load({
     // conversation.composer.dock (below the input card, next to the shipped
     // stats line); on the new-chat hero — which has no composer.dock seat —
     // it falls back to conversation.input.dock, stacked above the token
-    // heatmap.
+    // heatmap. While the seat is mounted (an open conversation) the readout
+    // re-reads on CHIP_POLL_MS so a long session never keeps an old balance.
 
     // The composer quota chip is always on: no user switch exists, and no
     // persisted off-state can hide it from the new-chat page.
@@ -445,6 +446,15 @@ window.__ModuleLoader__.load({
     ];
     const CHIP_TTL_MS = 10 * 60 * 1000;
     const CHIP_MIN_ATTEMPT_MS = 60 * 1000;
+    // A conversation left open must not keep showing the balance it had when
+    // the page loaded, so the chip re-reads the quota on a fixed interval
+    // (below). The Host keeps its own snapshot warm on its refreshIntervalMs
+    // schedule, so this is normally just a cheap cache read.
+    const CHIP_POLL_MS = 60 * 1000;
+    // If even the Host snapshot is this old, its scheduler is off or stalled
+    // (refreshIntervalMs: 0): the scheduled poll then escalates from a cache
+    // read to a real query instead of re-serving an old balance.
+    const CHIP_STALE_MS = 10 * 60 * 1000;
 
     // ---- provider route → quota provider --------------------------------
     // The chip must name the ACCOUNT the selected route bills, so the DSH
@@ -495,10 +505,12 @@ window.__ModuleLoader__.load({
       return null;
     }
 
-    // Chip data: provider → { value, at, status }. Seeded from the shared page
-    // cache; fresh results are written back to it so both surfaces stay
-    // consistent. status: "ready" | "loading" | "error" — stale data stays
-    // visible while a refresh is in flight (no disappear-then-appear).
+    // Chip data: provider → { value, at, fetchedAt, status }. Seeded from the
+    // shared page cache; fresh results are written back to it so both surfaces
+    // stay consistent. status: "ready" | "loading" | "error" — stale data
+    // stays visible while a refresh is in flight (no disappear-then-appear).
+    // `at` is when this client last read the provider; `fetchedAt` is when the
+    // Host produced the snapshot it read, which is what staleness is judged on.
     const chipState = (() => {
       const cached = loadCache();
       const state = {};
@@ -506,13 +518,16 @@ window.__ModuleLoader__.load({
         const at = Date.parse(cached.fetchedAt) || 0;
         for (const name of PROVIDER_NAMES) {
           const prov = cached.providers[name];
-          if (prov) state[name] = { value: prov, at, status: "ready" };
+          if (prov) state[name] = { value: prov, at, fetchedAt: cached.fetchedAt, status: "ready" };
         }
       }
       return state;
     })();
     const chipListeners = new Set();
     const chipAttempts = new Map();
+    // One Remote read per provider at a time: the chip is mounted in every
+    // candidate seat, and the poll timer fires in each of them.
+    const chipInflight = new Set();
     function subscribeChipStore(fn) {
       chipListeners.add(fn);
       return () => chipListeners.delete(fn);
@@ -521,31 +536,65 @@ window.__ModuleLoader__.load({
       chipState[provider] = record;
       chipListeners.forEach((f) => f());
     }
-    function chipEnsure(query, refresh, provider, force) {
+    /**
+     * Read one provider's quota into the chip store.
+     * @param force  - skip the TTL/attempt guards and query upstream (`refresh`)
+     * @param silent - a background poll: no loading flicker, and a failure
+     *                 keeps the last good reading instead of the error state.
+     */
+    function chipEnsure(query, refresh, provider, force, silent) {
       const now = Date.now();
       const cur = chipState[provider];
-      if (!force && cur && cur.at > 0 && now - cur.at < CHIP_TTL_MS) return;
+      if (!force && !silent && cur && cur.at > 0 && now - cur.at < CHIP_TTL_MS) return;
+      if (chipInflight.has(provider)) return;
       const lastTry = chipAttempts.get(provider) || 0;
-      if (!force && now - lastTry < CHIP_MIN_ATTEMPT_MS) return;
+      if (!force && !silent && now - lastTry < CHIP_MIN_ATTEMPT_MS) return;
       chipAttempts.set(provider, now);
-      chipSet(provider, { value: cur && cur.value ? cur.value : null, at: cur ? cur.at : 0, status: "loading" });
+      chipInflight.add(provider);
+      if (!silent) {
+        chipSet(provider, { value: cur && cur.value ? cur.value : null, at: cur ? cur.at : 0, fetchedAt: cur ? cur.fetchedAt : null, status: "loading" });
+      }
       Promise.resolve()
         .then(() => (force ? refresh : query)([provider]))
         .then((result) => {
           if (!result || result.ok === false) throw new Error("remote failed");
           const prov = result.value && result.value.providers && result.value.providers[provider];
           if (!prov || prov.status === "skipped") throw new Error("skipped");
-          chipSet(provider, { value: prov, at: Date.now(), status: "ready" });
+          const fetchedAt = (result.value && result.value.fetchedAt) || null;
+          chipSet(provider, { value: prov, at: Date.now(), fetchedAt, status: "ready" });
           const cached = loadCache();
           saveCache({
-            fetchedAt: new Date().toISOString(),
+            fetchedAt: fetchedAt || new Date().toISOString(),
             providers: { ...(cached ? cached.providers : {}), [provider]: prov },
           });
         })
         .catch(() => {
+          if (silent) return;
           const c = chipState[provider];
-          chipSet(provider, { value: c && c.value ? c.value : null, at: c ? c.at : 0, status: "error" });
+          chipSet(provider, { value: c && c.value ? c.value : null, at: c ? c.at : 0, fetchedAt: c ? c.fetchedAt : null, status: "error" });
+        })
+        .finally(() => {
+          chipInflight.delete(provider);
         });
+    }
+
+    /**
+     * Scheduled read for an open conversation. A cache read (`query`) is enough
+     * while the Host scheduler is keeping its snapshot warm; when that snapshot
+     * is older than CHIP_STALE_MS the poll asks for a real query (`refresh`)
+     * instead, so the chip cannot sit on an old balance. That escalation is
+     * itself throttled to one upstream query per CHIP_STALE_MS per provider —
+     * a Host with auto-refresh disabled must not spawn its CLI providers on
+     * every poll.
+     */
+    const chipUpstreamAt = new Map();
+    function chipPoll(query, refresh, provider) {
+      const cur = chipState[provider];
+      const fetchedMs = cur && cur.fetchedAt ? Date.parse(cur.fetchedAt) : NaN;
+      const stale = !Number.isFinite(fetchedMs) || Date.now() - fetchedMs > CHIP_STALE_MS;
+      const escalate = stale && Date.now() - (chipUpstreamAt.get(provider) || 0) > CHIP_STALE_MS;
+      if (escalate) chipUpstreamAt.set(provider, Date.now());
+      chipEnsure(query, refresh, provider, escalate, true);
     }
 
     /** The hero (new-chat) composer has no composer.dock seat — detect it. */
@@ -588,6 +637,26 @@ window.__ModuleLoader__.load({
       const dirLoading = !!dirState && (dirState.status === "idle" || dirState.status === "loading");
       const provider = available && current ? resolveQuotaProvider(current.provider, dirState.groups) : null;
       React.useEffect(() => { if (provider) chipEnsure(query, refresh, provider, false); }, [provider, query, refresh]);
+      // Active conversation: re-read the quota on a fixed interval so a session
+      // that has been running for a while never keeps showing the balance it
+      // loaded with. Hidden tabs are skipped and caught up on the next
+      // visibility change, so a backgrounded window costs no Remote traffic.
+      React.useEffect(() => {
+        if (!provider) return undefined;
+        const tick = () => {
+          if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+          chipPoll(query, refresh, provider);
+        };
+        const timer = setInterval(tick, CHIP_POLL_MS);
+        const onVisibility = () => {
+          if (typeof document === "undefined" || document.visibilityState !== "hidden") tick();
+        };
+        if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
+        return () => {
+          clearInterval(timer);
+          if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
+        };
+      }, [provider, query, refresh]);
       const record = React.useSyncExternalStore(
         subscribeChipStore,
         () => (provider ? chipState[provider] || null : null)

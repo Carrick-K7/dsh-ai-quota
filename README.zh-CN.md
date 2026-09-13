@@ -17,7 +17,7 @@ DeepSeek Harness 插件：查询你的 AI 订阅额度 / 余额 —— **Codex**
 - **模型工具 `query_ai_quota`**：任何 agent 会话里直接问「查一下我的 AI 额度」，返回人类可读摘要。
 - **设置页**：设置侧边栏新增「AI 额度」页，每个 provider 的用量进度条 / 余额 + 手动刷新。
 - **输入框额度行**：跟随当前 **provider 路由**（绝不看模型 ID —— 同一个模型可能由多个路由提供、额度彼此独立）的一行极简额度提示，新建页面与会话中都显示。
-- **自动刷新**：host 每 `refreshIntervalMs`（默认 2 分钟）全量查询一次并写缓存，前端与工具秒回；`0` 关闭。
+- **自动刷新**：host 每 `refreshIntervalMs`（默认 2 分钟）全量查询一次并写缓存，前端与工具秒回；`0` 关闭。此外**打开中的对话**每 60 秒静默重读一次当前 provider 的额度（不会闪加载态），所以长时间不关的会话不会一直停在打开时的旧余额；标签页隐藏时跳过，重新可见时立即补一次。
 - **统一格式**：订阅制窗口 / 余额两种形态归一化，单个 provider 失败不影响其他。
 - **跟随皮肤配色**:所有读数颜色都是 CSS 变量 —— 加载初音皮肤(dsk-miku-skin)时,输入框额度行与用量条变为柔和的初音青绿;没有皮肤时仍是原有的翠绿/琥珀/红三档。
 - **不泄露密钥**：API key / token 永不进入工具输出、Remote 结果与日志。
@@ -51,6 +51,8 @@ dsh plugin --profile web add github:Carrick-K7/dsh-ai-quota
 ## 输入框额度行的路由匹配
 
 额度行读取当前所选模型的 **provider 路由**（如 `opencode-go-carrick`、`kimi-coding`、`deepseek-official`、`openai-codex`），绝不按模型 ID 匹配 —— OpenCode Go 路由下的 `kimi-k3` 属于 OpenCode Go 额度，而不是 Kimi 订阅。路由 id（或路由别名对应的 provider 显示名）包含 `302`、`opencode`、`codex`、`kimi`/`moonshot`、`deepseek` 之一即被识别；其余路由不显示额度行，而不是显示另一个账号的余额。
+
+额度行挂载期间每 60 秒重读一次该 provider（读 host 的暖缓存，不额外打上游接口）。若 host 快照本身已超过 10 分钟未更新（即 host 自动刷新被关闭或卡住），轮询会升级为真实查询，并限制为每个 provider 每 10 分钟最多一次。
 
 ## 密钥来源
 

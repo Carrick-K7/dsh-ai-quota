@@ -1,6 +1,6 @@
 {
   "name": "dsh-ai-quota",
-  "version": "0.7.8",
+  "version": "0.7.9",
   "description": "DeepSeek Harness plugin: query AI subscription quotas & balances (Codex, Kimi, DeepSeek, 302.AI, OpenCode Go) as a model tool and a Settings page",
   "license": "MIT",
   "keywords": [
