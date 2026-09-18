@@ -1,7 +1,7 @@
 {
   "name": "dsh-ai-quota",
-  "version": "0.7.9",
-  "description": "DeepSeek Harness plugin: query AI subscription quotas & balances (Codex, Kimi, DeepSeek, 302.AI, OpenCode Go) as a model tool and a Settings page",
+  "version": "0.8.0",
+  "description": "DeepSeek Harness plugin: query AI subscription quotas & balances (Codex, Kimi, GLM Coding Plan, DeepSeek, 302.AI, OpenCode Go) as a model tool and a Settings page",
   "license": "MIT",
   "keywords": [
     "deepseek-harness",
@@ -11,6 +11,10 @@
     "kimi",
     "deepseek",
     "opencode-go",
+    "glm",
+    "zai",
+    "zhipu",
+    "coding-plan",
     "balance",
     "usage",
     "quota"

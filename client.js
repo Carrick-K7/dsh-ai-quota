@@ -28,6 +28,7 @@ window.__ModuleLoader__.load({
       unknown: "未知",
       providerCodex: "Codex",
       providerKimi: "Kimi",
+      providerGlm: "GLM Coding Plan",
       providerDeepseek: "DeepSeek",
       providerAi302: "302.AI",
       providerOpencodeGo: "OpenCode Go",
@@ -37,6 +38,7 @@ window.__ModuleLoader__.load({
       noApiKeyDeepseek: "未找到 DeepSeek API Key（默认环境变量 DEEPSEEK_API_KEY，可在插件配置中改环境变量名）。",
       noApiKey302: "未找到 302.AI API Key（默认 DSH 凭据 AI_302_API_KEY，可在插件配置中改环境变量名）。",
       noApiKeyOpencode: "未找到 OpenCode Go API Key（默认环境变量 OPENCODE_GO_API_KEY，或 ~/.local/share/opencode/auth.json 的 opencode-go 条目）。",
+      noApiKeyGlm: "未找到 GLM Coding Plan API Key（默认 DSH 凭据 ZAI_CODING_CN_API_KEY，可在插件配置中改凭据名）。",
       noCredentialsKimi: "未找到 Kimi 登录态（~/.kimi-code/credentials/kimi-code.json），请先运行 kimi login。",
       loginExpired: "Kimi 登录态已过期，请运行 kimi login 重新登录。",
       unauthorized: "API Key 无效或已过期（401）。",
@@ -65,6 +67,7 @@ window.__ModuleLoader__.load({
       unknown: "unknown",
       providerCodex: "Codex",
       providerKimi: "Kimi",
+      providerGlm: "GLM Coding Plan",
       providerDeepseek: "DeepSeek",
       providerAi302: "302.AI",
       providerOpencodeGo: "OpenCode Go",
@@ -74,6 +77,7 @@ window.__ModuleLoader__.load({
       noApiKeyDeepseek: "No DeepSeek API key found (default env var DEEPSEEK_API_KEY; rename via plugin config).",
       noApiKey302: "No 302.AI API key found (DSH credential AI_302_API_KEY; rename via plugin config).",
       noApiKeyOpencode: "No OpenCode Go API key found (default env var OPENCODE_GO_API_KEY, or the opencode-go entry in ~/.local/share/opencode/auth.json).",
+      noApiKeyGlm: "No GLM Coding Plan API key found (DSH credential ZAI_CODING_CN_API_KEY; rename via plugin config).",
       noCredentialsKimi: "No Kimi login state found (~/.kimi-code/credentials/kimi-code.json); run kimi login first.",
       loginExpired: "Kimi login expired; run kimi login to sign in again.",
       unauthorized: "API key is invalid or expired (401).",
@@ -304,6 +308,7 @@ window.__ModuleLoader__.load({
       if (value.status === "not-configured") {
         if (name === "deepseek") return t("noApiKeyDeepseek");
         if (name === "ai302") return t("noApiKey302");
+        if (name === "glm") return t("noApiKeyGlm");
         if (name === "kimi") return e === "login-expired" ? t("loginExpired") : t("noCredentialsKimi");
         return t("noApiKeyOpencode");
       }
@@ -405,7 +410,7 @@ window.__ModuleLoader__.load({
 
     // ---- cache + per-provider independent loading ----
     const CACHE_KEY = "dsh-ai-quota.cache.v1";
-    const PROVIDER_NAMES = ["codex", "kimi", "opencodeGo", "deepseek", "ai302"];
+    const PROVIDER_NAMES = ["codex", "kimi", "glm", "opencodeGo", "deepseek", "ai302"];
 
     function loadCache() {
       try {
@@ -474,6 +479,10 @@ window.__ModuleLoader__.load({
       ["codex", ["codex"]],
       ["kimi", ["kimi", "moonshot"]],
       ["deepseek", ["deepseek"]],
+      // GLM Coding Plan routes are named after the vendor (zai-coding-cn,
+      // glm-cn, zhipu-bigmodel-coding); `glm` also covers a route that merely
+      // names its plan.
+      ["glm", ["zai", "zhipu", "bigmodel", "glm"]],
     ];
 
     /** Match one route id (or provider display name) against the vendor tokens. */
@@ -860,6 +869,7 @@ window.__ModuleLoader__.load({
         React.createElement("div", { style: styles.list },
           renderProvider("codex", null, React.createElement(SubscriptionBody, { value: cards.providers.codex || {}, t }), false),
           renderProvider("kimi", null, React.createElement(SubscriptionBody, { value: cards.providers.kimi || {}, t }), true),
+          renderProvider("glm", null, React.createElement(SubscriptionBody, { value: cards.providers.glm || {}, t }), true),
           renderProvider("opencodeGo", null, React.createElement(SubscriptionBody, { value: cards.providers.opencodeGo || {}, t }), true),
           renderProvider("deepseek", React.createElement(BalanceHead, { value: cards.providers.deepseek || {}, t }), React.createElement(BalanceBody, { value: cards.providers.deepseek || {}, t }), true),
           renderProvider("ai302", React.createElement(BalanceHead, { value: cards.providers.ai302 || {}, t }), React.createElement(BalanceBody, { value: cards.providers.ai302 || {}, t }), true)

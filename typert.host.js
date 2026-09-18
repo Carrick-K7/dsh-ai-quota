@@ -60,6 +60,7 @@ const resultSchema = z.object({
   providers: z.object({
     codex: codexProvider,
     kimi: keyedSubscriptionProvider,
+    glm: keyedSubscriptionProvider,
     deepseek: deepseekProvider,
     ai302: deepseekProvider,
     opencodeGo: keyedSubscriptionProvider,
