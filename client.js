@@ -58,10 +58,6 @@ window.__ModuleLoader__.load({
       windowWeekly: "每周",
       windowMonthly: "每月",
       showSection: "显示的额度",
-      showIntro: "按检测结果显示或隐藏每个 provider 的额度（当前检测到 {n} 项）。系统没有检测到 Key / 登录态的项无法开启。",
-      detected: "已检测到",
-      notDetectedShort: "系统未检测到",
-      notDetected: "系统未检测到 Key / 登录态，暂时没有可展示的额度",
       hideHint: "关闭后隐藏「{name}」的额度",
       showHint: "打开后显示「{name}」的额度",
       showAll: "全部显示",
@@ -111,10 +107,6 @@ window.__ModuleLoader__.load({
       windowMonthly: "monthly",
       chipRefresh: "Click to refresh",
       showSection: "Shown readouts",
-      showIntro: "Show or hide each detected provider's readout ({n} detected). A provider with no key or login state cannot be turned on.",
-      detected: "Detected",
-      notDetectedShort: "Not detected",
-      notDetected: "No key or login state detected — nothing to show yet",
       hideHint: "Turn off to hide {name}",
       showHint: "Turn on to show {name}",
       showAll: "Show all",
@@ -581,20 +573,22 @@ window.__ModuleLoader__.load({
     // opens this list of switches. A provider with nothing detected keeps its
     // row (so the reason is visible) but its switch is inert.
 
-    /** One provider's row on the sub-page: name, detection note, switch. */
+    /** One provider's row on the sub-page: name, switch, and - only when it
+     *  cannot be switched on - the concrete reason why. A provider that can be
+     *  toggled needs no "detected" badge: the switch already says it. */
     function VisibilityRow(props) {
-      const { t, name, detected, on, onToggle } = props;
+      const { t, name, detected, on, onToggle, reason } = props;
       const label = t("provider" + name.charAt(0).toUpperCase() + name.slice(1));
       const title = detected
         ? (on ? t("hideHint") : t("showHint")).replace("{name}", label)
-        : t("notDetected");
+        : (reason || undefined);
       // A provider with nothing detected reads as off: there is no readout to
-      // show, so a disabled "on" switch next to "系统未检测到" would lie.
+      // show, so a disabled "on" switch would lie.
       const checked = detected && on;
       return React.createElement("div", { style: styles.settingRow },
         React.createElement("div", { style: styles.settingText },
           React.createElement("span", { style: styles.settingName }, label),
-          React.createElement("span", { style: styles.settingNote }, detected ? t("detected") : t("notDetectedShort"))
+          reason ? React.createElement("span", { style: styles.settingNote }, reason) : null
         ),
         React.createElement("button", {
           type: "button",
@@ -611,9 +605,18 @@ window.__ModuleLoader__.load({
 
     /** The embedded settings page: back to the quotas, then one switch per provider. */
     function VisibilitySettings(props) {
-      const { t, hidden, statuses, onBack } = props;
+      const { t, hidden, statuses, values, onBack } = props;
       const anyHidden = PROVIDER_NAMES.some((name) => hidden[name] === false);
-      const detectedCount = PROVIDER_NAMES.filter((name) => !HIDDEN_STATUSES.includes(statuses[name])).length;
+      // Only a provider that cannot be switched on gets an explanation, and it
+      // is the concrete one (which key/CLI/login state is missing), not a
+      // restatement of the disabled switch.
+      const reasonOf = (name) => {
+        const status = statuses[name];
+        if (status === "not-installed") return t("statusNotInstalled");
+        if (status === "not-configured") return errorText(values[name] || { status }, t, name);
+        // "skipped" 只是还没查（或本轮没请求），没有可解释的原因。
+        return "";
+      };
       return React.createElement("div", { style: styles.subPage },
         React.createElement("div", { style: styles.subHead },
           React.createElement("button", {
@@ -625,16 +628,19 @@ window.__ModuleLoader__.load({
           }, React.createElement(BackIcon), t("back")),
           React.createElement("h3", { style: styles.subTitle }, t("showSection"))
         ),
-        React.createElement("p", { style: styles.hint }, t("showIntro").replace("{n}", String(detectedCount))),
         React.createElement("div", { style: styles.settingsList },
-          PROVIDER_NAMES.map((name) => React.createElement(VisibilityRow, {
-            key: name,
-            t,
-            name,
-            on: hidden[name] !== false,
-            detected: !HIDDEN_STATUSES.includes(statuses[name]),
-            onToggle: setProviderVisible,
-          }))
+          PROVIDER_NAMES.map((name) => {
+            const detected = !HIDDEN_STATUSES.includes(statuses[name]);
+            return React.createElement(VisibilityRow, {
+              key: name,
+              t,
+              name,
+              on: hidden[name] !== false,
+              detected,
+              reason: detected ? "" : reasonOf(name),
+              onToggle: setProviderVisible,
+            });
+          })
         ),
         anyHidden
           ? React.createElement("div", { style: styles.subFoot },
@@ -1088,7 +1094,9 @@ window.__ModuleLoader__.load({
       // embedded page the header's gear opens.
       if (view === "visibility") {
         return React.createElement("div", { style: styles.wrap },
-          React.createElement(VisibilitySettings, { t, hidden, statuses, onBack: () => setView("list") })
+          React.createElement(VisibilitySettings, {
+            t, hidden, statuses, values: cards.providers, onBack: () => setView("list"),
+          })
         );
       }
 
