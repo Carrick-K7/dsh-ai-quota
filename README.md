@@ -10,12 +10,13 @@ English · [中文](README.zh-CN.md)
 
 ![AI Quota settings page](docs/settings.png)
 
-*Settings page: per-window usage bars (Codex / Kimi / GLM Coding Plan / OpenCode Go) and plain balances (DeepSeek, 302.AI), with manual refresh and a composer chip that follows the selected provider route.*
+*Settings page: per-window usage bars (Codex / Kimi / GLM Coding Plan / OpenCode Go) and plain balances (DeepSeek, 302.AI), with manual refresh and a freshness line in relative time; the gear button opens the embedded visibility settings, one switch per provider.*
 
 ## Features
 
 - **Model tool `query_ai_quota`** — ask any agent session to check your quota; returns a human-readable summary.
 - **Settings page** — an "AI Quota" section with per-window usage bars and balances, plus manual refresh.
+- **Per-provider visibility** — the gear button in the section header opens a second level inside the same settings page: one switch per provider, plus whether the host detected it. A provider with no key or login state keeps its row but its switch is inert. Everything detected is on by default, so a key added later appears on its own. The choice applies to the list *and* to the composer chip, and is stored in the browser (`localStorage`), so flipping one is instant — no host round-trip, no plugin reload. The `query_ai_quota` tool always returns every provider.
 - **Composer chip** — a one-line quota indicator that follows the selected **provider route** (never the model id: the same model can be served by several routes with independent quotas), on both the new-chat page and in sessions.
 - **Auto-refresh** — the host re-queries all providers every `refreshIntervalMs` (default 2 min; `0` disables) and serves a warm cache, so every surface reads instantly. An **open conversation** additionally re-reads its provider's quota every 60 s (silently, without a loading flicker), so a session left running for a while never keeps the balance it loaded with; a hidden tab is skipped and caught up when it becomes visible again.
 - **Unified format** — providers are normalized to `subscription` windows or `balance` entries; one provider failing never affects the others.

@@ -57,6 +57,20 @@ window.__ModuleLoader__.load({
       windowRolling: "滚动",
       windowWeekly: "每周",
       windowMonthly: "每月",
+      showSection: "显示的额度",
+      showIntro: "按检测结果显示或隐藏每个 provider 的额度（当前检测到 {n} 项）。系统没有检测到 Key / 登录态的项无法开启。",
+      detected: "已检测到",
+      notDetectedShort: "系统未检测到",
+      notDetected: "系统未检测到 Key / 登录态，暂时没有可展示的额度",
+      hideHint: "关闭后隐藏「{name}」的额度",
+      showHint: "打开后显示「{name}」的额度",
+      showAll: "全部显示",
+      back: "返回",
+      justNow: "刚刚",
+      agoMin: "{n} 分钟前",
+      agoHour: "{n} 小时前",
+      agoDay: "{n} 天前",
+      settingsHint: "配置展示哪些 provider 的额度",
     };
     const en = {
       nav: "AI Quota",
@@ -96,6 +110,20 @@ window.__ModuleLoader__.load({
       windowWeekly: "weekly",
       windowMonthly: "monthly",
       chipRefresh: "Click to refresh",
+      showSection: "Shown readouts",
+      showIntro: "Show or hide each detected provider's readout ({n} detected). A provider with no key or login state cannot be turned on.",
+      detected: "Detected",
+      notDetectedShort: "Not detected",
+      notDetected: "No key or login state detected — nothing to show yet",
+      hideHint: "Turn off to hide {name}",
+      showHint: "Turn on to show {name}",
+      showAll: "Show all",
+      back: "Back",
+      justNow: "just now",
+      agoMin: "{n} min ago",
+      agoHour: "{n} h ago",
+      agoDay: "{n} d ago",
+      settingsHint: "Choose which providers' quotas are shown",
     };
 
     // Client-side Remote contribution. The result codec is a pass-through
@@ -199,6 +227,16 @@ window.__ModuleLoader__.load({
       skelBar: { display: "inline-block", width: 44, height: 4, borderRadius: 999, background: "var(--dsw-alias-border-l2)" },
       skelText: { display: "inline-block", width: 68, height: 9, borderRadius: 5, background: "var(--dsw-alias-border-l2)" },
       skelName: { display: "inline-block", width: 36, height: 9, borderRadius: 5, background: "var(--dsw-alias-border-l2)" },
+      // ---- the embedded settings page ----
+      subPage: { display: "flex", flexDirection: "column", gap: 10 },
+      subHead: { display: "flex", alignItems: "center", gap: 10 },
+      subTitle: { fontSize: 14, fontWeight: 600, margin: 0 },
+      settingsList: { border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 12, background: "var(--dsw-alias-bg-layer-3)", overflow: "hidden" },
+      settingRow: { display: "flex", alignItems: "center", gap: 12, padding: "11px 14px" },
+      settingText: { flex: 1, display: "flex", flexDirection: "column", gap: 2, minWidth: 0 },
+      settingName: { fontSize: 13, fontWeight: 600 },
+      settingNote: { fontSize: 11, color: MUTED },
+      subFoot: { display: "flex", justifyContent: "flex-end" },
     };
 
     // Class-based bits (hover / spin) that inline styles cannot express.
@@ -224,6 +262,22 @@ window.__ModuleLoader__.load({
         "[data-dsh-aq-miku] body[data-ds-dark-theme]{--dsh-aq-ok:#39c5bb;--dsh-aq-accent:#6ed6ce;--dsh-aq-name:#39c5bb;--dsh-aq-label:#7a9a96;--dsh-aq-track:rgba(57,197,187,.16);--dsh-aq-track-border:rgba(57,197,187,.26);--dsh-aq-hover:rgba(57,197,187,.10)}",
         ".dsh-ab-skel{animation:dsh-ab-pulse 1.3s ease-in-out infinite}",
         "@keyframes dsh-ab-pulse{0%,100%{opacity:.35}50%{opacity:.85}}",
+        // Per-provider visibility switches: a pill per provider, filled when the
+        // readout is shown, dashed when the user hid it, dotted + faded when the
+        // host never detected anything to show.
+        ".dsh-ab-gear{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;padding:0;transition:background .15s ease,color .15s ease}",
+        ".dsh-ab-gear:hover{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}",
+        ".dsh-ab-gear svg{display:block}",
+        ".dsh-ab-back{display:inline-flex;align-items:center;gap:5px;font-size:12px;line-height:24px;height:26px;padding:0 9px 0 7px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background .15s ease,color .15s ease}",
+        ".dsh-ab-back:hover{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}",
+        // A real switch, the shape a settings row promises.
+        ".dsh-ab-switch{position:relative;flex:none;width:36px;height:20px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);cursor:pointer;padding:0;transition:background .15s ease,border-color .15s ease}",
+        ".dsh-ab-switch.on{background:var(--dsh-aq-ok, #10b981);border-color:transparent}",
+        ".dsh-ab-switch:disabled{opacity:.4;cursor:default}",
+        ".dsh-ab-switch-knob{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s ease}",
+        ".dsh-ab-switch.on .dsh-ab-switch-knob{transform:translateX(16px)}",
+        ".dsh-ab-visreset{font-size:12px;line-height:22px;color:var(--dsw-alias-label-tertiary);background:none;border:none;cursor:pointer;padding:0 2px;text-decoration:underline}",
+        ".dsh-ab-visreset:hover{color:var(--dsw-alias-label-primary)}",
         // Hero fallback placement: the hero composer is a flex column where the
         // token heatmap's root uses order:99 to drop below the input card. Our
         // chip span is a direct seat child (the seat is display:contents), so
@@ -264,6 +318,17 @@ window.__ModuleLoader__.load({
         React.createElement("path", { d: "M20.49 15a9 9 0 1 1-2.12-9.36L23 10" })
       );
 
+    const GearIcon = () =>
+      React.createElement("svg", { width: 13, height: 13, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" },
+        React.createElement("circle", { cx: 12, cy: 12, r: 3.1 }),
+        React.createElement("path", { d: "M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.7 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.54a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15.1 4.7a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.46 9v.09A1.7 1.7 0 0 0 21 10.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z" })
+      );
+
+    const BackIcon = () =>
+      React.createElement("svg", { width: 13, height: 13, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2.2, strokeLinecap: "round", strokeLinejoin: "round" },
+        React.createElement("polyline", { points: "15 18 9 12 15 6" })
+      );
+
     /** Solid severity color for a used-percentage: green < 70 ≤ amber < 90 ≤ red. */
     function usageColor(used) {
       if (used === null) return COLOR_OK;
@@ -272,11 +337,31 @@ window.__ModuleLoader__.load({
       return COLOR_OK;
     }
 
-    function fmtUpdatedAt(iso, t) {
+    /** "更新于 3 分钟前" — a snapshot's age is what matters, not the clock face. */
+    function fmtUpdatedAt(iso, t, now) {
       if (!iso) return "";
       const d = new Date(iso);
       if (Number.isNaN(d.getTime())) return "";
-      return t("updatedAt").replace("{time}", d.toLocaleTimeString());
+      const reference = typeof now === "number" ? now : Date.now();
+      const mins = Math.floor((reference - d.getTime()) / 60000);
+      if (!Number.isFinite(mins) || mins < 1) return t("updatedAt").replace("{time}", t("justNow"));
+      if (mins < 60) return t("updatedAt").replace("{time}", t("agoMin").replace("{n}", String(mins)));
+      const hours = Math.floor(mins / 60);
+      if (hours < 24) return t("updatedAt").replace("{time}", t("agoHour").replace("{n}", String(hours)));
+      return t("updatedAt").replace("{time}", t("agoDay").replace("{n}", String(Math.floor(hours / 24))));
+    }
+
+    /**
+     * A clock that re-renders its component on an interval, so a relative
+     * "updated" line keeps counting instead of freezing at its first render.
+     */
+    function useNow(intervalMs) {
+      const [now, setNow] = React.useState(() => Date.now());
+      React.useEffect(() => {
+        const timer = setInterval(() => setNow(Date.now()), intervalMs);
+        return () => clearInterval(timer);
+      }, [intervalMs]);
+      return now;
     }
 
     function fmtRelative(iso, t) {
@@ -434,6 +519,136 @@ window.__ModuleLoader__.load({
       }
     }
 
+    // Providers that were never detected — no key configured, CLI not
+    // installed, or not covered by the current request — leave the page clean:
+    // their row is hidden until something is configured, then it appears
+    // automatically on the next refresh. Real errors (HTTP 401, timeouts) stay
+    // visible for diagnosis.
+    const HIDDEN_STATUSES = ["skipped", "not-configured", "not-installed"];
+
+    // ---- per-provider visibility ----------------------------------------
+    // The plugin hides a provider it never detected; this is the user's own
+    // switch on top of that, for the keys that WERE detected (a plan you no
+    // longer care about, an aggregator you only use occasionally). Unset means
+    // visible, so a provider configured later shows up on its own. Stored per
+    // browser in localStorage next to the chip cache: flipping a switch is
+    // instant and needs no host round-trip or plugin reload.
+    const VISIBILITY_KEY = "dsh-ai-quota.visible.v1";
+
+    function loadVisibility() {
+      const hidden = {};
+      try {
+        const raw = window.localStorage.getItem(VISIBILITY_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          for (const name of PROVIDER_NAMES) if (parsed[name] === false) hidden[name] = false;
+        }
+      } catch {
+        /* ignore */
+      }
+      return hidden;
+    }
+
+    let hiddenProviders = loadVisibility();
+    const visibilityListeners = new Set();
+
+    function subscribeVisibility(fn) {
+      visibilityListeners.add(fn);
+      return () => visibilityListeners.delete(fn);
+    }
+
+    /** Stable identity until a switch flips (useSyncExternalStore contract). */
+    function visibilitySnapshot() {
+      return hiddenProviders;
+    }
+
+    function setProviderVisible(name, visible) {
+      const next = { ...hiddenProviders };
+      if (visible) delete next[name];
+      else next[name] = false;
+      hiddenProviders = next;
+      try {
+        window.localStorage.setItem(VISIBILITY_KEY, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      visibilityListeners.forEach((f) => f());
+    }
+
+    // ---- the visibility sub-page, embedded in the settings section -------
+    // A second level inside the AI Quota section rather than a strip of chips
+    // over the readouts: the section shows the quotas, and its "显示项" entry
+    // opens this list of switches. A provider with nothing detected keeps its
+    // row (so the reason is visible) but its switch is inert.
+
+    /** One provider's row on the sub-page: name, detection note, switch. */
+    function VisibilityRow(props) {
+      const { t, name, detected, on, onToggle } = props;
+      const label = t("provider" + name.charAt(0).toUpperCase() + name.slice(1));
+      const title = detected
+        ? (on ? t("hideHint") : t("showHint")).replace("{name}", label)
+        : t("notDetected");
+      // A provider with nothing detected reads as off: there is no readout to
+      // show, so a disabled "on" switch next to "系统未检测到" would lie.
+      const checked = detected && on;
+      return React.createElement("div", { style: styles.settingRow },
+        React.createElement("div", { style: styles.settingText },
+          React.createElement("span", { style: styles.settingName }, label),
+          React.createElement("span", { style: styles.settingNote }, detected ? t("detected") : t("notDetectedShort"))
+        ),
+        React.createElement("button", {
+          type: "button",
+          className: "dsh-ab-switch" + (checked ? " on" : ""),
+          role: "switch",
+          "aria-checked": checked,
+          "aria-label": label,
+          disabled: !detected,
+          title,
+          onClick: detected ? () => onToggle(name, !on) : undefined,
+        }, React.createElement("span", { className: "dsh-ab-switch-knob" }))
+      );
+    }
+
+    /** The embedded settings page: back to the quotas, then one switch per provider. */
+    function VisibilitySettings(props) {
+      const { t, hidden, statuses, onBack } = props;
+      const anyHidden = PROVIDER_NAMES.some((name) => hidden[name] === false);
+      const detectedCount = PROVIDER_NAMES.filter((name) => !HIDDEN_STATUSES.includes(statuses[name])).length;
+      return React.createElement("div", { style: styles.subPage },
+        React.createElement("div", { style: styles.subHead },
+          React.createElement("button", {
+            type: "button",
+            className: "dsh-ab-back",
+            onClick: onBack,
+            title: t("back"),
+            "aria-label": t("back"),
+          }, React.createElement(BackIcon), t("back")),
+          React.createElement("h3", { style: styles.subTitle }, t("showSection"))
+        ),
+        React.createElement("p", { style: styles.hint }, t("showIntro").replace("{n}", String(detectedCount))),
+        React.createElement("div", { style: styles.settingsList },
+          PROVIDER_NAMES.map((name) => React.createElement(VisibilityRow, {
+            key: name,
+            t,
+            name,
+            on: hidden[name] !== false,
+            detected: !HIDDEN_STATUSES.includes(statuses[name]),
+            onToggle: setProviderVisible,
+          }))
+        ),
+        anyHidden
+          ? React.createElement("div", { style: styles.subFoot },
+              React.createElement("button", {
+                type: "button",
+                className: "dsh-ab-visreset",
+                title: t("showAll"),
+                onClick: () => PROVIDER_NAMES.forEach((name) => setProviderVisible(name, true)),
+              }, t("showAll"))
+            )
+          : null
+      );
+    }
+
     // ---- composer balance chip -----------------------------------------
     // A minimal readout under the input box: current provider route → its
     // quota account → that provider's windows. Fixed seat:
@@ -443,8 +658,10 @@ window.__ModuleLoader__.load({
     // heatmap. While the seat is mounted (an open conversation) the readout
     // re-reads on CHIP_POLL_MS so a long session never keeps an old balance.
 
-    // The composer quota chip is always on: no user switch exists, and no
-    // persisted off-state can hide it from the new-chat page.
+    // The composer quota chip itself has no on/off switch: it follows the
+    // selected provider route. The settings page's per-provider switches do
+    // reach it, though — a provider the user turned off shows no chip, exactly
+    // like a route this plugin does not recognize.
     const CHIP_SEATS = [
       ["above", "conversation.input.dock", 5],
       ["below", "conversation.composer.dock", 30],
@@ -644,7 +861,12 @@ window.__ModuleLoader__.load({
       React.useEffect(() => { if (available && load) load(); }, [available, load]);
       const current = dirState ? dirState.current : null;
       const dirLoading = !!dirState && (dirState.status === "idle" || dirState.status === "loading");
-      const provider = available && current ? resolveQuotaProvider(current.provider, dirState.groups) : null;
+      // The user's own switches (settings page) apply here too: a provider
+      // turned off there shows no chip, exactly like an unmapped route.
+      const hidden = React.useSyncExternalStore(subscribeVisibility, visibilitySnapshot);
+      const resolved = available && current ? resolveQuotaProvider(current.provider, dirState.groups) : null;
+      const providerHidden = !!resolved && hidden[resolved] === false;
+      const provider = providerHidden ? null : resolved;
       React.useEffect(() => { if (provider) chipEnsure(query, refresh, provider, false); }, [provider, query, refresh]);
       // Active conversation: re-read the quota on a fixed interval so a session
       // that has been running for a while never keeps showing the balance it
@@ -685,14 +907,14 @@ window.__ModuleLoader__.load({
       }, [seat]);
 
       const visible = seat === "below" || dockPresent === false;
-      if (!visible || !available) return null;
+      if (!visible || !available || providerHidden) return null;
 
       const name = provider ? t("provider" + provider.charAt(0).toUpperCase() + provider.slice(1)) : null;
       const value = record && record.value && record.value.status === "ok" ? record.value : null;
       const refreshing = !!record && record.status === "loading" && !!value;
 
       if (!value) {
-        if ((!provider && dirLoading) || (provider && (!record || record.status === "loading"))) {
+        if ((!resolved && dirLoading) || (provider && (!record || record.status === "loading"))) {
           return React.createElement(ChipSkeleton, { name });
         }
         return null; // unmapped model / failed query: stay out of the way
@@ -744,6 +966,10 @@ window.__ModuleLoader__.load({
 
     function BalancesPanel(props) {
       const { query, refresh, t } = props;
+      // Which of the section's two levels is on screen.
+      const [view, setView] = React.useState("list");
+      // Keeps the relative "更新于 …" line counting while the panel is open.
+      const now = useNow(30000);
       const [cards, setCards] = React.useState(() => {
         const cached = loadCache();
         const providers = {};
@@ -833,15 +1059,18 @@ window.__ModuleLoader__.load({
       React.useEffect(() => { refreshAll(false); }, [refreshAll]);
 
       const refreshingAny = PROVIDER_NAMES.some((n) => cards.state[n] === "loading");
+      // Re-render both the switches and the list when a switch flips.
+      const hidden = React.useSyncExternalStore(subscribeVisibility, visibilitySnapshot);
 
-      // Providers that were never detected — no key configured, CLI not
-      // installed, or not covered by the current request — leave the page
-      // clean: their row is hidden until something is configured, then it
-      // appears automatically on the next refresh. Real errors (HTTP 401,
-      // timeouts) stay visible for diagnosis.
-      const HIDDEN_STATUSES = ["skipped", "not-configured", "not-installed"];
+      const statusOf = (name) => {
+        if (cards.state[name] === "error") return "error";
+        const prov = cards.providers[name];
+        if (prov) return prov.status;
+        return cards.state[name] === "loading" ? "loading" : "skipped";
+      };
 
       const renderProvider = (name, headExtra, body, divider) => {
+        if (hidden[name] === false) return null; // the user's own switch
         const st = cards.state[name];
         const prov = cards.providers[name];
         const value = st === "error"
@@ -852,7 +1081,17 @@ window.__ModuleLoader__.load({
         return React.createElement(ProviderBlock, { key: name, name, title: t(titleKey), value, t, headExtra, divider }, body);
       };
 
-      const updated = fmtUpdatedAt(cards.fetchedAt, t);
+      const statuses = Object.fromEntries(PROVIDER_NAMES.map((name) => [name, statusOf(name)]));
+      const updated = fmtUpdatedAt(cards.fetchedAt, t, now);
+
+      // Two levels live inside this one settings section: the quotas, and the
+      // embedded page the header's gear opens.
+      if (view === "visibility") {
+        return React.createElement("div", { style: styles.wrap },
+          React.createElement(VisibilitySettings, { t, hidden, statuses, onBack: () => setView("list") })
+        );
+      }
+
       return React.createElement("div", { style: styles.wrap },
         React.createElement("div", { style: styles.head },
           React.createElement("h2", { style: styles.title }, t("title")),
@@ -863,7 +1102,13 @@ window.__ModuleLoader__.load({
               onClick: () => refreshAll(true),
               title: t("refresh"),
               "aria-label": t("refresh"),
-            }, React.createElement(RefreshIcon))
+            }, React.createElement(RefreshIcon)),
+            React.createElement("button", {
+              className: "dsh-ab-gear",
+              onClick: () => setView("visibility"),
+              title: t("settingsHint"),
+              "aria-label": t("settingsHint"),
+            }, React.createElement(GearIcon))
           )
         ),
         React.createElement("div", { style: styles.list },
