@@ -1056,8 +1056,18 @@ export class AiQuotaGateway extends TypertRemoteService {
         const tick = () => this._refresh().catch(() => {});
         const timer = setInterval(tick, intervalMs);
         timer.unref?.();
-        tick(); // 启动即预热一次
-        return () => clearInterval(timer);
+        // 启动预热必须等 credentials 服务就绪。resolveKey() 会把「服务还没加载」
+        // 读成「没有 key」，于是 deepseek / 302.AI / GLM 会在重启后的第一个
+        // refreshIntervalMs 里一直显示「未配置 API Key」——错的是快照，不是配置。
+        // ctx.inject 在服务可用时触发（已就绪则立即触发）；没有 credentials 的
+        // 独立部署由第一个定时 tick 和 query() 的按需刷新兜底。
+        const fiber = ctx.inject(["credentials"], () => {
+          tick();
+        });
+        return () => {
+          clearInterval(timer);
+          fiber?.dispose?.();
+        };
       });
     }
 
