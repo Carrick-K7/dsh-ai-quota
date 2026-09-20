@@ -321,12 +321,25 @@ window.__ModuleLoader__.load({
         React.createElement("polyline", { points: "15 18 9 12 15 6" })
       );
 
-    /** Solid severity color for a used-percentage: green < 70 ≤ amber < 90 ≤ red. */
+    /** Severity band of a used-percentage: green < 70 ≤ amber < 90 ≤ red. */
+    function usageLevel(used) {
+      if (used === null) return "ok";
+      if (used >= 90) return "crit";
+      if (used >= 70) return "warn";
+      return "ok";
+    }
+
+    /** Solid severity color for a used-percentage. */
     function usageColor(used) {
-      if (used === null) return COLOR_OK;
-      if (used >= 90) return COLOR_CRIT;
-      if (used >= 70) return COLOR_WARN;
-      return COLOR_OK;
+      const level = usageLevel(used);
+      return level === "crit" ? COLOR_CRIT : level === "warn" ? COLOR_WARN : COLOR_OK;
+    }
+
+    /** The meter's hairline: neutral while healthy, the severity color once it warns. */
+    function meterBorder(level) {
+      if (level === "crit") return COLOR_CRIT;
+      if (level === "warn") return COLOR_WARN;
+      return "var(--dsh-aq-track-border, var(--dsw-alias-border-l2))";
     }
 
     /** "更新于 3 分钟前" — a snapshot's age is what matters, not the clock face. */
@@ -405,6 +418,7 @@ window.__ModuleLoader__.load({
       const { w, t } = props;
       const used = pct(w.usedPercent);
       const left = pct(w.remainingPercent);
+      const level = usageLevel(used);
       const color = usageColor(used);
       const label = windowLabel(w.name, t);
       const fill = {
@@ -417,7 +431,9 @@ window.__ModuleLoader__.load({
       const barTitle = left === null ? undefined : t("remainingShort") + " " + left + "%";
       return React.createElement("div", { style: styles.windowRow },
         React.createElement("span", { style: styles.windowLabel, title: label }, label),
-        React.createElement("div", { style: styles.barTrack, title: barTitle },
+        // The hairline follows the fill once the bar warns: a red bar in a
+        // neutral grey outline reads as two different states at once.
+        React.createElement("div", { style: { ...styles.barTrack, borderColor: meterBorder(level) }, title: barTitle },
           React.createElement("div", { style: fill })
         ),
         React.createElement("span", { style: styles.windowStat },
@@ -960,7 +976,7 @@ window.__ModuleLoader__.load({
           const color = usageColor(used);
           return React.createElement("span", { key: "seg" + i, style: { ...styles.chipSeg, marginLeft: i === 0 ? 4 : 12 } },
             React.createElement("span", { style: styles.chipSegLabel }, windowLabel(w.name, t)),
-            React.createElement("span", { style: styles.chipMiniTrack },
+            React.createElement("span", { style: { ...styles.chipMiniTrack, borderColor: meterBorder(usageLevel(used)) } },
               React.createElement("span", { style: { ...styles.chipMiniFill, width: (used === null ? 0 : used) + "%", background: color } })
             ),
             React.createElement("b", { style: { ...styles.chipValue, color } }, used === null ? "—" : used + "%"),
