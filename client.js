@@ -276,6 +276,15 @@ window.__ModuleLoader__.load({
         // order:50 lands it between card and heatmap, and align-self:center
         // keeps it on the card's horizontal center axis.
         '[data-slot="conversation.input.dock"]>.dsh-ab-chip{order:50;align-self:center}',
+        // Session placement: conversation.composer.dock is a single centered
+        // row of native readouts (session stats + context meter). The chip
+        // must not share that row — it reads as an overlap. When the chip is
+        // present the dock wraps, and the chip takes the whole second row,
+        // centred like the row above it. The seat is display:contents, so the
+        // chip is a direct flex item of the dock; :has() targets the dock row
+        // from the seat it contains.
+        'div:has(> [data-slot="conversation.composer.dock"]){flex-wrap:wrap;row-gap:2px}',
+        '[data-slot="conversation.composer.dock"]>.dsh-ab-chip{order:1;flex:0 0 100%;justify-content:center;margin-top:-2px}',
       ].join("\n");
       document.head.appendChild(el);
     }
@@ -527,6 +536,108 @@ window.__ModuleLoader__.load({
       }
     }
 
+    // One store + one timer for the entire client plugin, not for a page or
+    // composer seat. Always use refresh(null): reading the host's warm cache
+    // every minute would still leave balances on its slower host schedule.
+    const QUOTA_REFRESH_MS = 60 * 1000;
+
+    function createQuotaStore(refreshRemote) {
+      const cached = loadCache();
+      let snapshot = {
+        providers: cached ? cached.providers : {},
+        fetchedAt: cached ? cached.fetchedAt : null,
+        refreshing: false,
+        error: null,
+      };
+      const listeners = new Set();
+      let active = false;
+      let generation = 0;
+      let inflight = null;
+      let lastAttemptAt = null;
+      const publish = (next) => {
+        snapshot = next;
+        listeners.forEach((listener) => listener());
+      };
+
+      function refresh(silent = false) {
+        if (!active) return Promise.resolve();
+        if (inflight) return inflight;
+        const requestGeneration = generation;
+        lastAttemptAt = Date.now();
+        publish({ ...snapshot, refreshing: !silent || !snapshot.fetchedAt, error: null });
+        const request = Promise.resolve()
+          .then(() => {
+            const isCurrent = () => active && generation === requestGeneration;
+            if (isCurrent()) return refreshRemote(null, isCurrent);
+          })
+          .then((result) => {
+            if (!active || generation !== requestGeneration) return;
+            if (!result || result.ok === false || !result.value || !result.value.providers) {
+              throw new Error("remote failed");
+            }
+            const providers = { ...snapshot.providers };
+            for (const name of PROVIDER_NAMES) {
+              const value = result.value.providers[name];
+              if (value && value.status !== "skipped") providers[name] = value;
+            }
+            const fetchedAt = result.value.fetchedAt || snapshot.fetchedAt;
+            saveCache({ fetchedAt, providers });
+            publish({ providers, fetchedAt, refreshing: false, error: null });
+          })
+          .catch(() => {
+            if (!active || generation !== requestGeneration) return;
+            // Keep the last reading and its real timestamp on transport errors;
+            // the next minute retries, without blanking either quota surface.
+            publish({ ...snapshot, refreshing: false, error: "remote failed" });
+          })
+          .finally(() => {
+            if (inflight === request) inflight = null;
+          });
+        inflight = request;
+        return request;
+      }
+
+      function start() {
+        if (active) return () => {};
+        active = true;
+        generation += 1;
+        const startGeneration = generation;
+        void refresh(true);
+        // No visibility or route guard: a hidden tab or a page without a
+        // composer must not deliberately stop the one-minute refresh.
+        const timer = setInterval(() => { void refresh(true); }, QUOTA_REFRESH_MS);
+        const catchUp = () => {
+          if (lastAttemptAt === null || Date.now() - lastAttemptAt >= QUOTA_REFRESH_MS) void refresh(true);
+        };
+        const onVisibility = () => {
+          if (document.visibilityState !== "hidden") catchUp();
+        };
+        // Browsers can suspend timers while asleep/backgrounded. Catch up when
+        // resumed or reconnected; do not replay a backlog of missed intervals.
+        document.addEventListener("visibilitychange", onVisibility);
+        window.addEventListener("online", catchUp);
+        return () => {
+          if (!active || generation !== startGeneration) return;
+          active = false;
+          generation += 1;
+          inflight = null;
+          clearInterval(timer);
+          document.removeEventListener("visibilitychange", onVisibility);
+          window.removeEventListener("online", catchUp);
+        };
+      }
+
+      return {
+        getSnapshot: () => snapshot,
+        subscribe: (listener) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+        refresh,
+        start,
+      };
+    }
+
     // Providers that were never detected — no key configured, CLI not
     // installed, or not covered by the current request — leave the page clean:
     // their row is hidden until something is configured, then it appears
@@ -677,8 +788,8 @@ window.__ModuleLoader__.load({
     // conversation.composer.dock (below the input card, next to the shipped
     // stats line); on the new-chat hero — which has no composer.dock seat —
     // it falls back to conversation.input.dock, stacked above the token
-    // heatmap. While the seat is mounted (an open conversation) the readout
-    // re-reads on CHIP_POLL_MS so a long session never keeps an old balance.
+    // heatmap. Both seats subscribe to the global quota store; mounting or
+    // switching conversations never starts, stops, or resets its timer.
 
     // The composer quota chip itself has no on/off switch: it follows the
     // selected provider route. The settings page's per-provider switches do
@@ -688,17 +799,6 @@ window.__ModuleLoader__.load({
       ["above", "conversation.input.dock", 5],
       ["below", "conversation.composer.dock", 30],
     ];
-    const CHIP_TTL_MS = 10 * 60 * 1000;
-    const CHIP_MIN_ATTEMPT_MS = 60 * 1000;
-    // A conversation left open must not keep showing the balance it had when
-    // the page loaded, so the chip re-reads the quota on a fixed interval
-    // (below). The Host keeps its own snapshot warm on its refreshIntervalMs
-    // schedule, so this is normally just a cheap cache read.
-    const CHIP_POLL_MS = 60 * 1000;
-    // If even the Host snapshot is this old, its scheduler is off or stalled
-    // (refreshIntervalMs: 0): the scheduled poll then escalates from a cache
-    // read to a real query instead of re-serving an old balance.
-    const CHIP_STALE_MS = 10 * 60 * 1000;
 
     // ---- provider route → quota provider --------------------------------
     // The chip must name the ACCOUNT the selected route bills, so the DSH
@@ -753,98 +853,6 @@ window.__ModuleLoader__.load({
       return null;
     }
 
-    // Chip data: provider → { value, at, fetchedAt, status }. Seeded from the
-    // shared page cache; fresh results are written back to it so both surfaces
-    // stay consistent. status: "ready" | "loading" | "error" — stale data
-    // stays visible while a refresh is in flight (no disappear-then-appear).
-    // `at` is when this client last read the provider; `fetchedAt` is when the
-    // Host produced the snapshot it read, which is what staleness is judged on.
-    const chipState = (() => {
-      const cached = loadCache();
-      const state = {};
-      if (cached) {
-        const at = Date.parse(cached.fetchedAt) || 0;
-        for (const name of PROVIDER_NAMES) {
-          const prov = cached.providers[name];
-          if (prov) state[name] = { value: prov, at, fetchedAt: cached.fetchedAt, status: "ready" };
-        }
-      }
-      return state;
-    })();
-    const chipListeners = new Set();
-    const chipAttempts = new Map();
-    // One Remote read per provider at a time: the chip is mounted in every
-    // candidate seat, and the poll timer fires in each of them.
-    const chipInflight = new Set();
-    function subscribeChipStore(fn) {
-      chipListeners.add(fn);
-      return () => chipListeners.delete(fn);
-    }
-    function chipSet(provider, record) {
-      chipState[provider] = record;
-      chipListeners.forEach((f) => f());
-    }
-    /**
-     * Read one provider's quota into the chip store.
-     * @param force  - skip the TTL/attempt guards and query upstream (`refresh`)
-     * @param silent - a background poll: no loading flicker, and a failure
-     *                 keeps the last good reading instead of the error state.
-     */
-    function chipEnsure(query, refresh, provider, force, silent) {
-      const now = Date.now();
-      const cur = chipState[provider];
-      if (!force && !silent && cur && cur.at > 0 && now - cur.at < CHIP_TTL_MS) return;
-      if (chipInflight.has(provider)) return;
-      const lastTry = chipAttempts.get(provider) || 0;
-      if (!force && !silent && now - lastTry < CHIP_MIN_ATTEMPT_MS) return;
-      chipAttempts.set(provider, now);
-      chipInflight.add(provider);
-      if (!silent) {
-        chipSet(provider, { value: cur && cur.value ? cur.value : null, at: cur ? cur.at : 0, fetchedAt: cur ? cur.fetchedAt : null, status: "loading" });
-      }
-      Promise.resolve()
-        .then(() => (force ? refresh : query)([provider]))
-        .then((result) => {
-          if (!result || result.ok === false) throw new Error("remote failed");
-          const prov = result.value && result.value.providers && result.value.providers[provider];
-          if (!prov || prov.status === "skipped") throw new Error("skipped");
-          const fetchedAt = (result.value && result.value.fetchedAt) || null;
-          chipSet(provider, { value: prov, at: Date.now(), fetchedAt, status: "ready" });
-          const cached = loadCache();
-          saveCache({
-            fetchedAt: fetchedAt || new Date().toISOString(),
-            providers: { ...(cached ? cached.providers : {}), [provider]: prov },
-          });
-        })
-        .catch(() => {
-          if (silent) return;
-          const c = chipState[provider];
-          chipSet(provider, { value: c && c.value ? c.value : null, at: c ? c.at : 0, fetchedAt: c ? c.fetchedAt : null, status: "error" });
-        })
-        .finally(() => {
-          chipInflight.delete(provider);
-        });
-    }
-
-    /**
-     * Scheduled read for an open conversation. A cache read (`query`) is enough
-     * while the Host scheduler is keeping its snapshot warm; when that snapshot
-     * is older than CHIP_STALE_MS the poll asks for a real query (`refresh`)
-     * instead, so the chip cannot sit on an old balance. That escalation is
-     * itself throttled to one upstream query per CHIP_STALE_MS per provider —
-     * a Host with auto-refresh disabled must not spawn its CLI providers on
-     * every poll.
-     */
-    const chipUpstreamAt = new Map();
-    function chipPoll(query, refresh, provider) {
-      const cur = chipState[provider];
-      const fetchedMs = cur && cur.fetchedAt ? Date.parse(cur.fetchedAt) : NaN;
-      const stale = !Number.isFinite(fetchedMs) || Date.now() - fetchedMs > CHIP_STALE_MS;
-      const escalate = stale && Date.now() - (chipUpstreamAt.get(provider) || 0) > CHIP_STALE_MS;
-      if (escalate) chipUpstreamAt.set(provider, Date.now());
-      chipEnsure(query, refresh, provider, escalate, true);
-    }
-
     /** The hero (new-chat) composer has no composer.dock seat — detect it. */
     function composerDockPresent() {
       try {
@@ -871,7 +879,7 @@ window.__ModuleLoader__.load({
     }
 
     function BalanceChip(props) {
-      const { seat, available, directory, load, query, refresh, t } = props;
+      const { seat, available, directory, load, quota, t } = props;
       const subscribeDirectory = React.useCallback(
         (cb) => (directory ? directory.subscribe(cb) : () => {}),
         [directory]
@@ -889,31 +897,8 @@ window.__ModuleLoader__.load({
       const resolved = available && current ? resolveQuotaProvider(current.provider, dirState.groups) : null;
       const providerHidden = !!resolved && hidden[resolved] === false;
       const provider = providerHidden ? null : resolved;
-      React.useEffect(() => { if (provider) chipEnsure(query, refresh, provider, false); }, [provider, query, refresh]);
-      // Active conversation: re-read the quota on a fixed interval so a session
-      // that has been running for a while never keeps showing the balance it
-      // loaded with. Hidden tabs are skipped and caught up on the next
-      // visibility change, so a backgrounded window costs no Remote traffic.
-      React.useEffect(() => {
-        if (!provider) return undefined;
-        const tick = () => {
-          if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-          chipPoll(query, refresh, provider);
-        };
-        const timer = setInterval(tick, CHIP_POLL_MS);
-        const onVisibility = () => {
-          if (typeof document === "undefined" || document.visibilityState !== "hidden") tick();
-        };
-        if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
-        return () => {
-          clearInterval(timer);
-          if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
-        };
-      }, [provider, query, refresh]);
-      const record = React.useSyncExternalStore(
-        subscribeChipStore,
-        () => (provider ? chipState[provider] || null : null)
-      );
+      const snapshot = React.useSyncExternalStore(quota.subscribe, quota.getSnapshot);
+      const record = provider ? snapshot.providers[provider] : null;
 
       // Hero fallback: the input.dock instance renders only when the page has
       // no composer.dock seat (the new-chat hero); dockPresent stays null
@@ -932,18 +917,18 @@ window.__ModuleLoader__.load({
       if (!visible || !available || providerHidden) return null;
 
       const name = provider ? t("provider" + provider.charAt(0).toUpperCase() + provider.slice(1)) : null;
-      const value = record && record.value && record.value.status === "ok" ? record.value : null;
-      const refreshing = !!record && record.status === "loading" && !!value;
+      const value = record && record.status === "ok" ? record : null;
+      const refreshing = snapshot.refreshing && !!value;
 
       if (!value) {
-        if ((!resolved && dirLoading) || (provider && (!record || record.status === "loading"))) {
+        if ((!resolved && dirLoading) || (provider && !record && snapshot.refreshing)) {
           return React.createElement(ChipSkeleton, { name });
         }
         return null; // unmapped model / failed query: stay out of the way
       }
 
       const isBalance = value.kind === "balance" || value.balances !== undefined;
-      const onRefresh = () => chipEnsure(query, refresh, provider, true);
+      const onRefresh = () => quota.refresh();
       const chipClass = "dsh-ab-chip" + (refreshing ? " dsh-ab-skel" : "");
 
       if (isBalance) {
@@ -987,117 +972,27 @@ window.__ModuleLoader__.load({
     }
 
     function BalancesPanel(props) {
-      const { query, refresh, t } = props;
+      const { quota, t } = props;
       // Which of the section's two levels is on screen.
       const [view, setView] = React.useState("list");
       // Keeps the relative "更新于 …" line counting while the panel is open.
       const now = useNow(30000);
-      const [cards, setCards] = React.useState(() => {
-        const cached = loadCache();
-        const providers = {};
-        const state = {};
-        for (const name of PROVIDER_NAMES) {
-          providers[name] = cached ? cached.providers[name] : null;
-          state[name] = "loading";
-        }
-        return {
-          providers,
-          fetchedAt: cached ? cached.fetchedAt : null,
-          state,
-          errors: {},
-        };
-      });
-      const mounted = React.useRef(true);
-      React.useEffect(() => () => { mounted.current = false; }, []);
-
-      const refreshOne = React.useCallback((name, force) => {
-        setCards((s) => ({ ...s, state: { ...s.state, [name]: "loading" }, errors: { ...s.errors, [name]: null } }));
-        Promise.resolve()
-          .then(() => (force ? refresh : query)([name]))
-          .then((result) => {
-            if (!result || result.ok === false) {
-              throw new Error((result && result.error && result.error.message) || "remote failed");
-            }
-            const prov = result.value && result.value.providers && result.value.providers[name];
-            if (!prov || prov.status === "skipped" || !mounted.current) return;
-            setCards((s) => {
-              const providers = { ...s.providers, [name]: prov };
-              const fetchedAt = (result.value && result.value.fetchedAt) || s.fetchedAt;
-              saveCache({ fetchedAt, providers });
-              return { ...s, providers, fetchedAt, state: { ...s.state, [name]: "done" } };
-            });
-          })
-          .catch((e) => {
-            if (!mounted.current) return;
-            setCards((s) => ({
-              ...s,
-              state: { ...s.state, [name]: "error" },
-              errors: { ...s.errors, [name]: String((e && e.message) || e) },
-            }));
-          });
-      }, [query, refresh]);
-
-      // 全面板只发一次 Remote 请求：Host 的 query/refresh 本来就返回完整快照。
-      // 旧实现按 provider 连发四次 RPC，冷启动/手动刷新时会重复经过
-      // Typert + HTTP 边界，并让界面等待四个独立请求全部落定。
-      const refreshAll = React.useCallback((force) => {
-        setCards((s) => ({
-          ...s,
-          state: Object.fromEntries(PROVIDER_NAMES.map((name) => [name, "loading"])),
-          errors: {},
-        }));
-        Promise.resolve()
-          .then(() => (force ? refresh : query)(null))
-          .then((result) => {
-            if (!result || result.ok === false) {
-              throw new Error((result && result.error && result.error.message) || "remote failed");
-            }
-            if (!mounted.current) return;
-            const incoming = (result.value && result.value.providers) || {};
-            setCards((s) => {
-              const providers = { ...s.providers };
-              const state = { ...s.state };
-              for (const name of PROVIDER_NAMES) {
-                const prov = incoming[name];
-                if (prov && prov.status !== "skipped") providers[name] = prov;
-                state[name] = "done";
-              }
-              const fetchedAt = (result.value && result.value.fetchedAt) || s.fetchedAt;
-              saveCache({ fetchedAt, providers });
-              return { ...s, providers, fetchedAt, state, errors: {} };
-            });
-          })
-          .catch((e) => {
-            if (!mounted.current) return;
-            const message = String((e && e.message) || e);
-            setCards((s) => ({
-              ...s,
-              state: Object.fromEntries(PROVIDER_NAMES.map((name) => [name, "error"])),
-              errors: Object.fromEntries(PROVIDER_NAMES.map((name) => [name, message])),
-            }));
-          });
-      }, [query, refresh]);
-
-      React.useEffect(() => { refreshAll(false); }, [refreshAll]);
-
-      const refreshingAny = PROVIDER_NAMES.some((n) => cards.state[n] === "loading");
+      // The settings page and every composer seat read the exact same snapshot.
+      // No mount-time request or page-scoped quota timer is needed.
+      const cards = React.useSyncExternalStore(quota.subscribe, quota.getSnapshot);
+      const refreshingAny = cards.refreshing;
       // Re-render both the switches and the list when a switch flips.
       const hidden = React.useSyncExternalStore(subscribeVisibility, visibilitySnapshot);
 
       const statusOf = (name) => {
-        if (cards.state[name] === "error") return "error";
         const prov = cards.providers[name];
         if (prov) return prov.status;
-        return cards.state[name] === "loading" ? "loading" : "skipped";
+        return refreshingAny ? "loading" : "skipped";
       };
 
       const renderProvider = (name, headExtra, body, divider) => {
         if (hidden[name] === false) return null; // the user's own switch
-        const st = cards.state[name];
-        const prov = cards.providers[name];
-        const value = st === "error"
-          ? { status: "error", error: cards.errors[name] || "unknown" }
-          : prov || { status: st === "loading" ? "loading" : "skipped" };
+        const value = cards.providers[name] || { status: statusOf(name) };
         if (HIDDEN_STATUSES.includes(value.status)) return null;
         const titleKey = "provider" + name.charAt(0).toUpperCase() + name.slice(1);
         return React.createElement(ProviderBlock, { key: name, name, title: t(titleKey), value, t, headExtra, divider }, body);
@@ -1123,7 +1018,7 @@ window.__ModuleLoader__.load({
             updated ? React.createElement("p", { style: styles.updated }, updated) : null,
             React.createElement("button", {
               className: "dsh-ab-refresh" + (refreshingAny ? " spinning" : ""),
-              onClick: () => refreshAll(true),
+              onClick: () => quota.refresh(),
               title: t("refresh"),
               "aria-label": t("refresh"),
             }, React.createElement(RefreshIcon)),
@@ -1135,6 +1030,7 @@ window.__ModuleLoader__.load({
             }, React.createElement(GearIcon))
           )
         ),
+        cards.error ? React.createElement("p", { style: styles.error, role: "status" }, t("network")) : null,
         React.createElement("div", { style: styles.list },
           renderProvider("codex", null, React.createElement(SubscriptionBody, { value: cards.providers.codex || {}, t }), false),
           renderProvider("kimi", null, React.createElement(SubscriptionBody, { value: cards.providers.kimi || {}, t }), true),
@@ -1153,18 +1049,21 @@ window.__ModuleLoader__.load({
       ctx.effect(watchMikuSkin, "dsh-ai-quota: miku skin flag");
       const t = ctx.locale.bind(NS);
 
-      const callRemote = (method, filter) => {
+      const callRemote = (method, filter, isCurrent) => {
         return Promise.resolve(mountReady).then(async () => {
+          // Mount can finish after a hot reload/unload; do not launch a new
+          // RPC for a disposed generation just because its Remote is now ready.
+          if (!isCurrent()) return;
           const api = ctx.get("remote.aiQuota");
           if (!api) throw new Error("aiQuota remote is unavailable");
           return api[method](filter);
         });
       };
-      // query 读 host 缓存（调度器每 2 分钟保鲜）；refresh 强制现场查询，
-      // 只用于用户手动触发的刷新。
-      const query = (filter) => callRemote("query", filter);
-      const refresh = (filter) => callRemote("refresh", filter);
-      const injected = () => ({ query, refresh, t });
+      const quota = createQuotaStore((filter, isCurrent) => callRemote("refresh", filter, isCurrent));
+      // Plugin lifetime, independent of settings/conversation/model selection.
+      // Also works when the host's own background scheduler is disabled.
+      ctx.effect(() => quota.start(), "dsh-ai-quota: global minute refresh");
+      const injected = () => ({ quota, t });
 
       ctx.slots.inject("settings.section", () => ctx.slots.register({
         name: "settings.section",
@@ -1208,8 +1107,7 @@ window.__ModuleLoader__.load({
                 load: () => {
                   if (available && directory) directory.load().catch(() => {});
                 },
-                query,
-                refresh,
+                quota,
                 t,
               };
             },
@@ -1221,8 +1119,9 @@ window.__ModuleLoader__.load({
     exports.NS = NS;
     exports.apply = apply;
     exports.inject = inject;
-    // Exposed for the standalone route-mapping test (.dev/test-provider-map.mjs).
+    // Exposed for standalone route-mapping and global-refresh regression tests.
     exports.resolveQuotaProvider = resolveQuotaProvider;
+    exports.createQuotaStore = createQuotaStore;
     return module.exports;
   }
 });

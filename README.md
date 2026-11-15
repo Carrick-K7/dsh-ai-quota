@@ -18,7 +18,7 @@ English · [中文](README.zh-CN.md)
 - **Settings page** — an "AI Quota" section with per-window usage bars and balances, plus manual refresh.
 - **Per-provider visibility** — the gear button in the section header opens a second level inside the same settings page: one switch per provider. A provider with no key or login state keeps its row, its switch stays inert, and the row names what is missing (which key, login, or CLI); a switch you can flip is the detection signal, so there is no separate "detected" badge. Everything detected is on by default, so a key added later appears on its own. The choice applies to the list *and* to the composer chip, and is stored in the browser (`localStorage`), so flipping one is instant — no host round-trip, no plugin reload. The `query_ai_quota` tool always returns every provider.
 - **Composer chip** — a one-line quota indicator that follows the selected **provider route** (never the model id: the same model can be served by several routes with independent quotas), on both the new-chat page and in sessions.
-- **Auto-refresh** — the host re-queries all providers every `refreshIntervalMs` (default 2 min; `0` disables) and serves a warm cache, so every surface reads instantly. An **open conversation** additionally re-reads its provider's quota every 60 s (silently, without a loading flicker), so a session left running for a while never keeps the balance it loaded with; a hidden tab is skipped and caught up when it becomes visible again.
+- **Global one-minute refresh** — opening DSH immediately queries all six providers, then repeats every **60 seconds on every screen**, even without a conversation or quota panel mounted. It calls `refresh(null)`, not a stale cache read, independently of the host's `refreshIntervalMs`. Settings and composer chips share one live snapshot and one in-flight request. Hidden tabs are not deliberately skipped; if the browser suspends timers, returning online/visible catches up when overdue. Background updates keep existing balances visible.
 - **Unified format** — providers are normalized to `subscription` windows or `balance` entries; one provider failing never affects the others.
 - **Skin-aware palette** — every readout color is a CSS variable: with the [dsh-miku-skin](https://github.com/topics/dsh-plugin) Hatsune skin loaded the chip and usage bars turn soft Miku teal, and without it they keep the shipped emerald/amber/red severity colors. A bar that reaches amber or red also tints its own hairline to match, so the whole meter reads as one state; a healthy bar keeps the quiet neutral outline.
 - **No secrets in output** — API keys and tokens never appear in tool output or logs.
@@ -38,7 +38,7 @@ All keys optional, defaults shown.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `timeoutMs` | `15000` | Per-provider query timeout (ms) |
-| `refreshIntervalMs` | `120000` | Auto-refresh interval (ms); `0` = off |
+| `refreshIntervalMs` | `120000` | Host-only cache refresh interval (ms); `0` disables host polling, not the browser's fixed 60-second refresh |
 | `codexCli` | `codex` | codex CLI command or absolute path |
 | `deepseekApiKeyEnv` | `DEEPSEEK_API_KEY` | DSH credential ref (fallback: same-named env var) |
 | `opencodeGoApiKeyEnv` | `OPENCODE_GO_API_KEY` | DSH credential ref (fallback: same-named env var) |
@@ -56,7 +56,7 @@ All keys optional, defaults shown.
 
 The chip reads the **provider route** of the current model selection (e.g. `opencode-go-carrick`, `kimi-coding`, `deepseek-official`, `openai-codex`) and never the model id — `kimi-k3` on an OpenCode Go route is an OpenCode Go quota, not a Kimi one. A route is recognized when its id (or, for an opaque alias, its provider display name) contains one of `302`, `opencode`, `codex`, `kimi`/`moonshot`, `deepseek`, `zai`/`zhipu`/`bigmodel`/`glm`. Any other route shows no chip rather than another account's balance.
 
-The chip then re-reads that provider every 60 s while it is mounted, reading the host's warm cache (so no extra upstream calls). If the host snapshot itself is older than 10 min — i.e. the host auto-refresh is off or stalled — the poll escalates to a real query, throttled to once per 10 min per provider.
+The chip subscribes to the plugin-wide snapshot, so entering/switching conversations shows the latest result immediately. The global timer refreshes all providers every 60 seconds even when no chip is rendered or a provider is hidden. Clicking a chip or the settings refresh button refreshes that same shared snapshot; concurrent requests are coalesced.
 
 ## Credentials
 
