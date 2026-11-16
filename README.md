@@ -2,6 +2,17 @@
 
 A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that shows your AI subscription quotas & balances — **Codex**, **Kimi**, **GLM Coding Plan**, **DeepSeek**, **302.AI**, **OpenCode Go** — in one place.
 
+| Provider | What you see |
+| --- | --- |
+| Codex | 5-hour / 7-day usage windows |
+| Kimi | usage windows |
+| GLM Coding Plan | 5-hour credit cycle, weekly quota, monthly MCP budget |
+| DeepSeek | account balance |
+| 302.AI | account balance |
+| OpenCode Go | usage windows |
+
+**Quick install:** `dsh plugin --profile web add github:Carrick-K7/dsh-ai-quota`
+
 [![DSH plugin](https://img.shields.io/badge/DSH%20plugin-topic%3Adsh--plugin-2ea44f?style=flat-square)](https://github.com/topics/dsh-plugin) [![GitHub stars](https://img.shields.io/github/stars/Carrick-K7/dsh-ai-quota?style=flat-square)](https://github.com/Carrick-K7/dsh-ai-quota) [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](./LICENSE)
 
 English · [中文](README.zh-CN.md)
